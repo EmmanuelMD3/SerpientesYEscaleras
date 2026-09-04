@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue';
 import { Flag, MapPinned } from '@lucide/vue';
 
-import type { BoardPlayer, BoardState, PlayerMove } from '@embedded-snakes-live/shared';
+import {
+  BOARD_SPECIAL_TYPE,
+  type BoardPlayer,
+  type BoardSpecial,
+  type BoardState,
+  type PlayerMove,
+} from '@embedded-snakes-live/shared';
 
 import BoardCell from './BoardCell.vue';
+import BoardSpecialOverlay from './BoardSpecialOverlay.vue';
 import PlayerToken from './PlayerToken.vue';
 
 const props = defineProps<{
@@ -12,11 +19,16 @@ const props = defineProps<{
 }>();
 
 const stepDurationMs = 190;
+const specialPauseMs = 300;
+const specialMoveDurationMs = 780;
 const displayPositions = reactive<Record<string, number>>({});
 const moveQueue = ref<PlayerMove[]>([]);
 const activeMove = ref<PlayerMove | null>(null);
+const specialTransit = ref<{ move: PlayerMove; phase: 'from' | 'to' } | null>(null);
+const specialNotice = ref<PlayerMove | null>(null);
 const processingQueue = ref(false);
 const processedMoves = new Set<string>();
+let specialNoticeTimeout: number | undefined;
 
 const cells = computed(() => {
   const rows: number[][] = [];
@@ -39,23 +51,133 @@ const visiblePlayers = computed<BoardPlayer[]>(() =>
 
 const startPlayers = computed(() => visiblePlayers.value.filter((player) => player.position === 0));
 
-const activePlayerId = computed(() => activeMove.value?.playerId);
+const activePlayerId = computed(
+  () => activeMove.value?.playerId ?? specialTransit.value?.move.playerId,
+);
+
+const specialTransitPlayer = computed<BoardPlayer | null>(() => {
+  const transit = specialTransit.value;
+
+  if (!transit) {
+    return null;
+  }
+
+  const player = props.board.players.find(
+    (candidate) => candidate.playerId === transit.move.playerId,
+  );
+
+  if (!player) {
+    return null;
+  }
+
+  return {
+    ...player,
+    position:
+      transit.phase === 'from' ? transit.move.rollLandingPosition : transit.move.finalPosition,
+  };
+});
+
+const specialTokenStyle = computed(() => {
+  const player = specialTransitPlayer.value;
+
+  if (!player) {
+    return {};
+  }
+
+  const point = pointForPosition(player.position);
+
+  return {
+    left: `${(point.x / 10) * 100}%`,
+    top: `${(point.y / 4) * 100}%`,
+  };
+});
+
+const specialTokenClass = computed(() => {
+  const type = specialTransit.value?.move.specialMove?.type;
+
+  if (type === BOARD_SPECIAL_TYPE.LADDER) {
+    return 'board-special-token--ladder';
+  }
+
+  if (type === BOARD_SPECIAL_TYPE.SNAKE) {
+    return 'board-special-token--snake';
+  }
+
+  return '';
+});
+
+const activeMoveText = computed(() => {
+  const move = activeMove.value;
+
+  if (!move) {
+    return `${props.board.players.length} fichas`;
+  }
+
+  if (move.specialMove) {
+    return `${move.playerName}: ${move.fromPosition} → ${move.rollLandingPosition} → ${move.finalPosition}`;
+  }
+
+  return `${move.playerName}: ${move.fromPosition} → ${move.finalPosition}`;
+});
 
 function playersAt(position: number): BoardPlayer[] {
-  return visiblePlayers.value.filter((player) => player.position === position);
+  const movingPlayerId = specialTransit.value?.move.playerId;
+
+  return visiblePlayers.value.filter(
+    (player) => player.position === position && player.playerId !== movingPlayerId,
+  );
 }
 
 function isPlayerQueued(playerId: string): boolean {
   return (
     activeMove.value?.playerId === playerId ||
+    specialTransit.value?.move.playerId === playerId ||
     moveQueue.value.some((move) => move.playerId === playerId)
   );
+}
+
+function pointForPosition(position: number): { x: number; y: number } {
+  const rowFromBottom = Math.floor((position - 1) / 10);
+  const column = rowFromBottom % 2 === 0 ? (position - 1) % 10 : 9 - ((position - 1) % 10);
+
+  return {
+    x: column + 0.5,
+    y: 3 - rowFromBottom + 0.5,
+  };
+}
+
+function specialForPosition(position: number): BoardSpecial | undefined {
+  return props.board.specials.find((special) => special.from === position);
 }
 
 function wait(durationMs: number): Promise<void> {
   return new Promise((resolve) => {
     window.setTimeout(resolve, durationMs);
   });
+}
+
+function showSpecialNotice(move: PlayerMove): void {
+  if (!move.specialMove) {
+    return;
+  }
+
+  specialNotice.value = move;
+
+  if (specialNoticeTimeout) {
+    window.clearTimeout(specialNoticeTimeout);
+  }
+
+  specialNoticeTimeout = window.setTimeout(() => {
+    specialNotice.value = null;
+  }, 2_400);
+}
+
+function specialName(special: BoardSpecial): string {
+  return special.type === BOARD_SPECIAL_TYPE.LADDER ? 'ESCALERA' : 'SERPIENTE';
+}
+
+function specialIcon(special: BoardSpecial): string {
+  return special.type === BOARD_SPECIAL_TYPE.LADDER ? '🪜' : '🐍';
 }
 
 async function processMoveQueue(): Promise<void> {
@@ -75,16 +197,33 @@ async function processMoveQueue(): Promise<void> {
     activeMove.value = move;
     displayPositions[move.playerId] = move.fromPosition;
 
-    if (move.fromPosition === move.toPosition) {
+    if (move.fromPosition === move.rollLandingPosition) {
       await wait(stepDurationMs);
     } else {
-      for (let position = move.fromPosition + 1; position <= move.toPosition; position += 1) {
+      for (
+        let position = move.fromPosition + 1;
+        position <= move.rollLandingPosition;
+        position += 1
+      ) {
         await wait(stepDurationMs);
         displayPositions[move.playerId] = position;
       }
     }
 
-    displayPositions[move.playerId] = move.toPosition;
+    displayPositions[move.playerId] = move.rollLandingPosition;
+
+    if (move.specialMove) {
+      showSpecialNotice(move);
+      await wait(specialPauseMs);
+      specialTransit.value = { move, phase: 'from' };
+      await nextTick();
+      await wait(40);
+      specialTransit.value = { move, phase: 'to' };
+      await wait(specialMoveDurationMs);
+      specialTransit.value = null;
+    }
+
+    displayPositions[move.playerId] = move.finalPosition;
     activeMove.value = null;
   }
 
@@ -124,6 +263,12 @@ watch(
   { deep: true, immediate: true },
 );
 
+onBeforeUnmount(() => {
+  if (specialNoticeTimeout) {
+    window.clearTimeout(specialNoticeTimeout);
+  }
+});
+
 defineExpose({ enqueueMove });
 </script>
 
@@ -148,22 +293,53 @@ defineExpose({ enqueueMove });
         class="rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-sm font-black text-white/75"
         aria-live="polite"
       >
-        <template v-if="activeMove">
-          {{ activeMove.playerName }}: {{ activeMove.fromPosition }} → {{ activeMove.toPosition }}
-        </template>
-        <template v-else>{{ board.players.length }} fichas</template>
+        {{ activeMoveText }}
       </p>
     </header>
 
+    <div
+      v-if="specialNotice?.specialMove"
+      class="board-special-toast"
+      :class="
+        specialNotice.specialMove.type === BOARD_SPECIAL_TYPE.LADDER
+          ? 'board-special-toast--ladder'
+          : 'board-special-toast--snake'
+      "
+      aria-live="polite"
+    >
+      <span class="text-3xl" aria-hidden="true">{{ specialIcon(specialNotice.specialMove) }}</span>
+      <div>
+        <p class="text-sm font-black uppercase tracking-wide">
+          {{ specialName(specialNotice.specialMove) }}
+        </p>
+        <p class="text-lg font-black">
+          {{ specialNotice.playerName }}: {{ specialNotice.specialMove.from }} →
+          {{ specialNotice.specialMove.to }}
+        </p>
+      </div>
+    </div>
+
     <div class="overflow-x-auto pb-2">
-      <div class="board-grid" role="grid" aria-label="Tablero de 40 casillas">
-        <BoardCell
-          v-for="position in cells"
-          :key="position"
-          :position="position"
-          :players="playersAt(position)"
-          :active-player-id="activePlayerId"
-        />
+      <div class="board-stage">
+        <div class="board-grid" role="grid" aria-label="Tablero de 40 casillas">
+          <BoardSpecialOverlay :specials="board.specials" />
+          <BoardCell
+            v-for="position in cells"
+            :key="position"
+            :position="position"
+            :special="specialForPosition(position)"
+            :players="playersAt(position)"
+            :active-player-id="activePlayerId"
+          />
+        </div>
+        <div
+          v-if="specialTransitPlayer"
+          class="board-special-token"
+          :class="specialTokenClass"
+          :style="specialTokenStyle"
+        >
+          <PlayerToken :player="specialTransitPlayer" active />
+        </div>
       </div>
     </div>
 

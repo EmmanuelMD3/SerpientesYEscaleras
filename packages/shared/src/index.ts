@@ -29,6 +29,77 @@ export type DiceValue = 1 | 2 | 3 | 4 | 5 | 6;
 
 export const BOARD_MAX_POSITION = 40;
 
+export const BOARD_SPECIAL_TYPE = {
+  LADDER: 'LADDER',
+  SNAKE: 'SNAKE',
+} as const;
+
+export type BoardSpecialType = (typeof BOARD_SPECIAL_TYPE)[keyof typeof BOARD_SPECIAL_TYPE];
+
+export interface BoardSpecial {
+  type: BoardSpecialType;
+  from: number;
+  to: number;
+}
+
+export interface SpecialMove {
+  type: BoardSpecialType;
+  from: number;
+  to: number;
+}
+
+export const BOARD_SPECIALS = [
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 3, to: 11 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 8, to: 18 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 15, to: 26 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 22, to: 34 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 28, to: 37 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 13, to: 5 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 20, to: 9 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 27, to: 16 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 35, to: 24 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 39, to: 30 },
+] as const satisfies readonly BoardSpecial[];
+
+export function validateBoardSpecials(specials: readonly BoardSpecial[] = BOARD_SPECIALS): void {
+  const seenStarts = new Set<number>();
+
+  for (const special of specials) {
+    const isKnownType =
+      special.type === BOARD_SPECIAL_TYPE.LADDER || special.type === BOARD_SPECIAL_TYPE.SNAKE;
+    const positionsAreIntegers = Number.isInteger(special.from) && Number.isInteger(special.to);
+    const positionsAreInRange =
+      special.from >= 1 &&
+      special.from <= BOARD_MAX_POSITION &&
+      special.to >= 1 &&
+      special.to <= BOARD_MAX_POSITION;
+
+    if (!isKnownType || !positionsAreIntegers || !positionsAreInRange) {
+      throw new Error(`Invalid board special configuration: ${JSON.stringify(special)}`);
+    }
+
+    if (special.from === special.to) {
+      throw new Error(`Board special cannot start and end on the same cell: ${special.from}`);
+    }
+
+    if (seenStarts.has(special.from)) {
+      throw new Error(`Duplicate board special start cell: ${special.from}`);
+    }
+
+    if (special.type === BOARD_SPECIAL_TYPE.LADDER && special.to <= special.from) {
+      throw new Error(`Ladder must move up: ${special.from} -> ${special.to}`);
+    }
+
+    if (special.type === BOARD_SPECIAL_TYPE.SNAKE && special.to >= special.from) {
+      throw new Error(`Snake must move down: ${special.from} -> ${special.to}`);
+    }
+
+    seenStarts.add(special.from);
+  }
+}
+
+validateBoardSpecials();
+
 export interface Player {
   id: string;
   name: string;
@@ -47,6 +118,7 @@ export interface BoardPlayer {
 export interface BoardState {
   maxPosition: number;
   players: BoardPlayer[];
+  specials: BoardSpecial[];
 }
 
 export interface QuestionOption {
@@ -75,12 +147,16 @@ export interface PublicQuestion {
   expiresAt: string;
   questionNumber: number;
   totalQuestions: number;
+  cycleNumber: number;
+  roundNumber: number;
 }
 
 export interface CountdownState {
   endsAt: string;
   nextQuestionNumber: number;
   totalQuestions: number;
+  cycleNumber: number;
+  roundNumber: number;
 }
 
 export interface QuestionAnswerSummary {
@@ -97,6 +173,8 @@ export interface QuestionResults {
   questionId: string;
   questionNumber: number;
   totalQuestions: number;
+  cycleNumber: number;
+  roundNumber: number;
   correctOptionId: string;
   correctOptionText: string;
   correctCount: number;
@@ -149,21 +227,46 @@ export interface PlayerMove {
   playerId: string;
   playerName: string;
   fromPosition: number;
-  toPosition: number;
   diceValue: DiceValue;
+  rollLandingPosition: number;
+  specialMove: SpecialMove | null;
+  finalPosition: number;
   questionId: string;
+  cycleNumber: number;
   roundNumber: number;
 }
 
 export interface RoundResult {
   questionId: string;
+  baseQuestionId: string;
+  cycleNumber: number;
+  roundNumber: number;
   playerId: string;
   resultStatus: PlayerResultStatus;
   correct: boolean;
   responseTimeMs: number | null;
   diceValue: DiceValue | null;
+  rollLandingPosition: number | null;
+  specialMove: SpecialMove | null;
   positionBefore: number;
   positionAfter: number;
+}
+
+export interface GameWinner {
+  playerId: string;
+  playerName: string;
+  position: number;
+  roundNumber: number;
+  cycleNumber: number;
+  responseTimeMs: number | null;
+}
+
+export interface FinalLeaderboardEntry {
+  rank: number;
+  playerId: string;
+  playerName: string;
+  position: number;
+  connected: boolean;
 }
 
 export interface PlayerQuestionState {
@@ -189,6 +292,8 @@ export interface GameRoom {
   diceSummary?: DiceSummary;
   dicePlayers?: DicePlayerState[];
   boardState?: BoardState;
+  winner?: GameWinner;
+  finalLeaderboard?: FinalLeaderboardEntry[];
 }
 
 export const SOCKET_EVENTS = {
@@ -219,6 +324,7 @@ export const SOCKET_EVENTS = {
   BOARD_STATE: 'board:state',
   PLAYER_MOVE: 'player:move',
   PLAYER_MOVED: 'player:moved',
+  GAME_FINISHED: 'game:finished',
 } as const;
 
 export const ROOM_ERROR_CODES = {
@@ -417,6 +523,14 @@ export interface PlayerMovedPayload extends PlayerMovePayload {
   board: BoardState;
 }
 
+export interface GameFinishedPayload {
+  roomCode: string;
+  room: GameRoom;
+  winner: GameWinner;
+  leaderboard: FinalLeaderboardEntry[];
+  board: BoardState;
+}
+
 export interface ServerToClientEvents {
   [SOCKET_EVENTS.ROOM_STATE]: (room: GameRoom) => void;
   [SOCKET_EVENTS.PLAYER_JOINED]: (payload: PlayerEventPayload) => void;
@@ -437,6 +551,7 @@ export interface ServerToClientEvents {
   [SOCKET_EVENTS.BOARD_STATE]: (payload: BoardStatePayload) => void;
   [SOCKET_EVENTS.PLAYER_MOVE]: (payload: PlayerMovePayload) => void;
   [SOCKET_EVENTS.PLAYER_MOVED]: (payload: PlayerMovedPayload) => void;
+  [SOCKET_EVENTS.GAME_FINISHED]: (payload: GameFinishedPayload) => void;
 }
 
 export interface ClientToServerEvents {

@@ -17,7 +17,7 @@
     "dev:server": "npm run dev -w apps/server",
     "start": "node scripts/start-production.mjs",
     "build": "npm run build -w packages/shared && npm run build -w apps/web && npm run build -w apps/server",
-    "typecheck": "npm run typecheck -w packages/shared && npm run typecheck -w apps/server && npm run typecheck -w apps/web",
+    "typecheck": "npm run build -w packages/shared && npm run typecheck -w packages/shared && npm run typecheck -w apps/server && npm run typecheck -w apps/web",
     "lint": "eslint .",
     "ports": "node scripts/check-ports.mjs",
     "format": "prettier --write .",

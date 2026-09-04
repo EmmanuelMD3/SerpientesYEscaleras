@@ -71,13 +71,15 @@ Para probar manualmente:
 8. Habilitar dados desde admin.
 9. Confirmar que solo jugadores correctos pueden lanzar y que el valor lo genera el servidor.
 10. Confirmar que el servidor actualiza posiciones y que el tablero admin mueve las fichas.
-11. Avanzar con `SIGUIENTE PREGUNTA` cuando los dados esten completos y verificar que las posiciones persisten.
+11. Confirmar que serpientes y escaleras solo se activan al aterrizar exactamente en su casilla inicial.
+12. Avanzar con `SIGUIENTE PREGUNTA` cuando los dados esten completos y verificar que las posiciones persisten.
+13. Confirmar que, si un jugador llega a la casilla 40, la partida termina solo despues de completar la fase de dados.
 
 ## Alcance actual
 
-Fase 4A cubre preguntas simultaneas tipo Kahoot, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora, dado individual para jugadores correctos, posiciones persistentes y tablero numerico admin de 40 casillas.
+Fase 4B cubre preguntas simultaneas tipo Kahoot, ciclos barajados sin repetir preguntas dentro de un mismo ciclo, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora, dado individual para jugadores correctos, posiciones persistentes, tablero numerico admin de 40 casillas, serpientes, escaleras y condicion de ganador.
 
-No avanzar todavia a serpientes, escaleras, casillas especiales, escudos, intercambios, bonificaciones, ganador, movimiento especial, base de datos ni GSAP salvo que el usuario lo pida.
+No avanzar todavia a casillas especiales adicionales, escudos, intercambios, power-ups, bonificaciones, base de datos, GSAP, sonidos ni sistema de cuentas salvo que el usuario lo pida.
 
 ## Railway
 

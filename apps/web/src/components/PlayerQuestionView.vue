@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CheckCircle2, Clock3, Hourglass, XCircle } from '@lucide/vue';
+import { CheckCircle2, Clock3, Flag, Hourglass, Trophy, XCircle } from '@lucide/vue';
 
 import {
   GAME_STATUS,
   PLAYER_RESULT_STATUS,
   type GameRoom,
+  type Player,
   type PlayerQuestionResult,
   type PlayerQuestionState,
 } from '@embedded-snakes-live/shared';
@@ -17,6 +18,7 @@ import QuestionTimer from './QuestionTimer.vue';
 
 const props = defineProps<{
   room: GameRoom;
+  player?: Player | null | undefined;
   playerState: PlayerQuestionState;
   isSubmitting?: boolean | undefined;
   isRollingDice?: boolean | undefined;
@@ -31,6 +33,11 @@ const question = computed(() => props.room.currentQuestion);
 const result = computed(() => props.playerState.result);
 const selectedOptionId = computed(() => props.playerState.selectedOptionId);
 const answerLocked = computed(() => props.isSubmitting || props.playerState.hasSubmitted);
+const winner = computed(() => props.room.winner);
+const playerWon = computed(() =>
+  Boolean(winner.value && winner.value.playerId === props.player?.id),
+);
+const finalPosition = computed(() => props.player?.position ?? 0);
 
 const resultTitle = computed(() => {
   if (!result.value) {
@@ -172,11 +179,29 @@ function isIncorrectSelection(
 
     <section
       v-else-if="room.status === GAME_STATUS.FINISHED"
-      class="rounded-lg border border-emerald-200/40 bg-emerald-300 p-6 text-zinc-950 shadow-glow"
+      class="rounded-lg border p-6 shadow-glow"
+      :class="
+        playerWon
+          ? 'border-amber-200/50 bg-amber-200 text-zinc-950'
+          : 'border-white/15 bg-black/25 text-white'
+      "
     >
-      <CheckCircle2 class="h-12 w-12" aria-hidden="true" />
-      <h1 class="mt-4 text-4xl font-black">Ronda terminada</h1>
-      <p class="mt-2 text-lg font-bold">Gracias por participar.</p>
+      <Trophy v-if="playerWon" class="h-12 w-12" aria-hidden="true" />
+      <Flag v-else class="h-12 w-12 text-amber-200" aria-hidden="true" />
+      <h1 class="mt-4 text-4xl font-black uppercase leading-none">
+        {{ playerWon ? '¡Ganaste!' : 'Partida terminada' }}
+      </h1>
+      <p v-if="playerWon" class="mt-3 text-lg font-bold">Llegaste a la meta.</p>
+      <template v-else>
+        <p class="mt-3 text-sm font-black uppercase tracking-wide text-white/55">Ganador</p>
+        <p class="text-3xl font-black text-amber-200">
+          {{ winner?.playerName ?? 'Por confirmar' }}
+        </p>
+        <p class="mt-5 text-sm font-black uppercase tracking-wide text-white/55">
+          Tu posicion final
+        </p>
+        <p class="font-mono text-5xl font-black text-emerald-200">{{ finalPosition }}</p>
+      </template>
     </section>
 
     <section

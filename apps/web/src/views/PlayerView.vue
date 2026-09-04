@@ -20,6 +20,7 @@ import {
   SOCKET_EVENTS,
   type DicePhaseStartPayload,
   type DiceResultPayload,
+  type GameFinishedPayload,
   type GameRoom,
   type Player,
   type PlayerMovedPayload,
@@ -389,7 +390,7 @@ function handlePlayerMoved(payload: PlayerMovedPayload): void {
     boardState: payload.board,
     players: room.value.players.map((candidate) =>
       candidate.id === payload.move.playerId
-        ? { ...candidate, position: payload.move.toPosition }
+        ? { ...candidate, position: payload.move.finalPosition }
         : candidate,
     ),
   };
@@ -397,12 +398,25 @@ function handlePlayerMoved(payload: PlayerMovedPayload): void {
   if (payload.move.playerId === player.value?.id) {
     player.value = {
       ...player.value,
-      position: payload.move.toPosition,
+      position: payload.move.finalPosition,
     };
     playerState.value = {
       ...playerState.value,
       move: payload.move,
     };
+  }
+}
+
+function handleGameFinished(payload: GameFinishedPayload): void {
+  if (payload.roomCode !== roomCode.value) {
+    return;
+  }
+
+  room.value = payload.room;
+  const currentPlayer = payload.room.players.find((candidate) => candidate.id === player.value?.id);
+
+  if (currentPlayer) {
+    player.value = currentPlayer;
   }
 }
 
@@ -429,6 +443,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
+  socket.on(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.on('connect', handleSocketReconnect);
   void attemptPlayerRejoin();
 });
@@ -444,6 +459,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
+  socket.off(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.off('connect', handleSocketReconnect);
 });
 </script>
@@ -523,6 +539,7 @@ onBeforeUnmount(() => {
           <PlayerQuestionView
             v-if="room"
             :room="room"
+            :player="player"
             :player-state="playerState"
             :is-submitting="isSubmittingAnswer"
             :is-rolling-dice="isRollingDice"

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import { CheckCircle2, Hourglass, XCircle } from '@lucide/vue';
 
 import {
+  BOARD_SPECIAL_TYPE,
   PLAYER_RESULT_STATUS,
   type DiceState,
   type PlayerMove,
@@ -80,7 +81,31 @@ const advancedPositions = computed(() => {
     return 0;
   }
 
-  return props.move.toPosition - props.move.fromPosition;
+  return props.move.rollLandingPosition - props.move.fromPosition;
+});
+
+const specialTitle = computed(() => {
+  if (!props.move?.specialMove) {
+    return '';
+  }
+
+  return props.move.specialMove.type === BOARD_SPECIAL_TYPE.LADDER ? '¡ESCALERA!' : '¡SERPIENTE!';
+});
+
+const specialIcon = computed(() => {
+  if (!props.move?.specialMove) {
+    return '';
+  }
+
+  return props.move.specialMove.type === BOARD_SPECIAL_TYPE.LADDER ? '🪜' : '🐍';
+});
+
+const moveCardClass = computed(() => {
+  if (props.move?.specialMove?.type === BOARD_SPECIAL_TYPE.SNAKE) {
+    return 'border-rose-200/40 bg-rose-400/15';
+  }
+
+  return 'border-emerald-200/30 bg-emerald-300/15';
 });
 </script>
 
@@ -99,13 +124,28 @@ const advancedPositions = computed(() => {
       <p v-if="dice?.rolled && dice.value" class="mt-5 font-mono text-7xl font-black text-white">
         {{ dice.value }}
       </p>
-      <div
-        v-if="move"
-        class="mt-5 w-full rounded-lg border border-emerald-200/30 bg-emerald-300/15 p-4 text-white"
-      >
-        <p class="text-base font-black">Avanzaste {{ advancedPositions }} casillas.</p>
-        <p class="mt-2 text-sm font-bold uppercase text-white/60">Nueva posicion</p>
-        <p class="font-mono text-5xl font-black text-emerald-200">{{ move.toPosition }}</p>
+      <div v-if="move" class="mt-5 w-full rounded-lg border p-4 text-white" :class="moveCardClass">
+        <p class="text-sm font-black uppercase text-white/60">Sacaste</p>
+        <p class="font-mono text-5xl font-black text-white">{{ move.diceValue }}</p>
+
+        <div class="mt-4 rounded-lg bg-white/10 px-4 py-3">
+          <p class="text-sm font-bold uppercase text-white/60">Avanzaste</p>
+          <p class="text-xl font-black">
+            {{ move.fromPosition }} → {{ move.rollLandingPosition }}
+            <span class="text-base text-white/70">({{ advancedPositions }} casillas)</span>
+          </p>
+        </div>
+
+        <div v-if="move.specialMove" class="mt-3 rounded-lg bg-white/10 px-4 py-3">
+          <p class="text-sm font-black uppercase text-white/60">
+            <span aria-hidden="true">{{ specialIcon }}</span>
+            {{ specialTitle }}
+          </p>
+          <p class="text-xl font-black">{{ move.specialMove.from }} → {{ move.specialMove.to }}</p>
+        </div>
+
+        <p class="mt-4 text-sm font-bold uppercase text-white/60">Nueva posicion</p>
+        <p class="font-mono text-5xl font-black text-emerald-200">{{ move.finalPosition }}</p>
       </div>
       <button
         v-if="dice?.eligible"

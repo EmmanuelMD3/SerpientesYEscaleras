@@ -277,6 +277,20 @@ function emitPlayerMoved(room: GameRoom, move: PlayerMove): void {
   });
 }
 
+function emitGameFinished(room: GameRoom): void {
+  if (!room.winner || !room.finalLeaderboard || !room.boardState) {
+    return;
+  }
+
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.GAME_FINISHED, {
+    roomCode: room.code,
+    room,
+    winner: room.winner,
+    leaderboard: room.finalLeaderboard,
+    board: room.boardState,
+  });
+}
+
 function emitPlayerQuestionState(roomCode: string, playerId: string): void {
   const state = getPlayerQuestionState(roomCode, playerId);
 
@@ -798,6 +812,10 @@ io.on('connection', (socket) => {
 
     if (result.shouldCompleteDicePhase) {
       emitDicePhaseComplete(result.room);
+    }
+
+    if (result.finished) {
+      emitGameFinished(result.room);
     }
   });
 

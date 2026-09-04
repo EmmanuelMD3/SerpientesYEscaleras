@@ -43,33 +43,69 @@
     animation: dice-roll 0.9s ease-in-out infinite;
   }
 
-  .board-grid {
-    display: grid;
-    grid-template-columns: repeat(10, minmax(76px, 1fr));
-    grid-template-rows: repeat(4, minmax(92px, 1fr));
-    min-width: 820px;
+  .board-stage {
+    position: relative;
+    width: 100%;
+    min-width: min(760px, 100%);
     overflow: hidden;
     border: 2px solid rgba(255, 255, 255, 0.24);
     border-radius: 8px;
     background: #18181b;
   }
 
+  .board-grid {
+    position: relative;
+    z-index: 1;
+    isolation: isolate;
+    display: grid;
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    grid-template-rows: repeat(4, minmax(92px, 1fr));
+    min-width: 0;
+  }
+
   .board-cell {
+    --board-cell-bg: rgba(209, 250, 229, 0.78);
+
     position: relative;
     min-width: 0;
     border-right: 1px solid rgba(24, 24, 27, 0.3);
     border-bottom: 1px solid rgba(24, 24, 27, 0.3);
     padding: 0.45rem;
-    background: #d1fae5;
+    background: transparent;
     color: #18181b;
     transition:
       background-color 160ms ease,
       box-shadow 160ms ease;
   }
 
+  .board-cell::before,
+  .board-cell::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+    pointer-events: none;
+  }
+
+  .board-cell::before {
+    z-index: 0;
+    background: var(--board-cell-bg);
+  }
+
+  .board-cell::after {
+    z-index: 3;
+    box-shadow:
+      inset 1px 1px 0 rgba(255, 255, 255, 0.2),
+      inset -1px -1px 0 rgba(24, 24, 27, 0.38);
+  }
+
+  .board-cell > * {
+    position: relative;
+    z-index: 4;
+  }
+
   .board-cell:nth-child(4n + 2),
   .board-cell:nth-child(4n + 3) {
-    background: #a7f3d0;
+    --board-cell-bg: rgba(167, 243, 208, 0.8);
   }
 
   .board-cell--occupied {
@@ -77,7 +113,7 @@
   }
 
   .board-cell--goal {
-    background: #fbbf24 !important;
+    --board-cell-bg: rgba(251, 191, 36, 0.86);
   }
 
   .board-cell__number {
@@ -96,6 +132,18 @@
     font-weight: 900;
     line-height: 1;
     text-transform: uppercase;
+  }
+
+  .board-cell__special {
+    display: inline-flex;
+    min-width: 1.45rem;
+    height: 1.45rem;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9999px;
+    background: rgba(24, 24, 27, 0.82);
+    font-size: 0.82rem;
+    line-height: 1;
   }
 
   .board-cell__tokens {
@@ -130,6 +178,203 @@
     animation: token-hop 380ms ease-in-out infinite alternate;
     outline: 3px solid rgba(255, 255, 255, 0.9);
     outline-offset: 1px;
+  }
+
+  .board-special-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    shape-rendering: geometricPrecision;
+  }
+
+  .board-ladder__centerline,
+  .board-ladder__rail-outline,
+  .board-ladder__rung-outline,
+  .board-ladder__rail,
+  .board-ladder__rail-highlight,
+  .board-ladder__rung,
+  .board-snake__body,
+  .board-snake__outline,
+  .board-snake__belly,
+  .board-snake__head-fill,
+  .board-snake__tongue,
+  .board-snake__tail path {
+    vector-effect: non-scaling-stroke;
+  }
+
+  .board-ladder__centerline {
+    stroke: rgba(120, 53, 15, 0.9);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-dasharray: 7 8;
+  }
+
+  .board-ladder__rail-outline,
+  .board-ladder__rung-outline {
+    stroke: rgba(69, 26, 3, 0.96);
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-ladder__rail-outline {
+    stroke-width: 15;
+  }
+
+  .board-ladder__rung-outline {
+    stroke-width: 12;
+  }
+
+  .board-ladder__rail {
+    stroke: #b45309;
+    stroke-width: 9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-ladder__rung {
+    stroke: #f59e0b;
+    stroke-width: 7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-ladder__rail-highlight {
+    stroke: rgba(254, 243, 199, 0.72);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+
+  .board-snake {
+    --snake-body: #16a34a;
+    --snake-belly: #dcfce7;
+    --snake-dark: #052e16;
+    --snake-head: #15803d;
+  }
+
+  .board-snake--1 {
+    --snake-body: #e11d48;
+    --snake-belly: #ffe4e6;
+    --snake-dark: #4c0519;
+    --snake-head: #be123c;
+  }
+
+  .board-snake--2 {
+    --snake-body: #2563eb;
+    --snake-belly: #dbeafe;
+    --snake-dark: #172554;
+    --snake-head: #1d4ed8;
+  }
+
+  .board-snake--3 {
+    --snake-body: #7c3aed;
+    --snake-belly: #ede9fe;
+    --snake-dark: #2e1065;
+    --snake-head: #6d28d9;
+  }
+
+  .board-snake--4 {
+    --snake-body: #0f766e;
+    --snake-belly: #ccfbf1;
+    --snake-dark: #042f2e;
+    --snake-head: #0d9488;
+  }
+
+  .board-snake__outline {
+    fill: none;
+    stroke: var(--snake-dark);
+    stroke-width: 23;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-snake__body {
+    fill: none;
+    stroke: var(--snake-body);
+    stroke-width: 15;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-snake__belly {
+    fill: none;
+    stroke: var(--snake-belly);
+    stroke-width: 4;
+    stroke-dasharray: 0.035 0.055;
+    stroke-linecap: round;
+    opacity: 0.95;
+  }
+
+  .board-snake__head-fill,
+  .board-snake__tail path {
+    fill: var(--snake-head);
+    stroke: var(--snake-dark);
+    stroke-linejoin: round;
+  }
+
+  .board-snake__head-fill {
+    stroke-width: 4;
+  }
+
+  .board-snake__tail path {
+    stroke-width: 3;
+  }
+
+  .board-snake__eye {
+    fill: #fefce8;
+    stroke: #18181b;
+    stroke-width: 0.012;
+  }
+
+  .board-snake__tongue {
+    fill: none;
+    stroke: #ef4444;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .board-special-token {
+    position: absolute;
+    z-index: 3;
+    transform: translate(-50%, -50%);
+    transition:
+      left 780ms cubic-bezier(0.22, 1, 0.36, 1),
+      top 780ms cubic-bezier(0.22, 1, 0.36, 1),
+      filter 200ms ease;
+    pointer-events: none;
+  }
+
+  .board-special-token--ladder {
+    filter: drop-shadow(0 0 10px rgba(251, 191, 36, 0.75));
+  }
+
+  .board-special-token--snake {
+    filter: drop-shadow(0 0 10px rgba(251, 113, 133, 0.8));
+  }
+
+  .board-special-toast {
+    margin-bottom: 1rem;
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 18px 35px rgba(0, 0, 0, 0.24);
+  }
+
+  .board-special-toast--ladder {
+    border: 1px solid rgba(253, 230, 138, 0.64);
+    background: rgba(251, 191, 36, 0.22);
+    color: #fffbeb;
+  }
+
+  .board-special-toast--snake {
+    border: 1px solid rgba(253, 164, 175, 0.6);
+    background: rgba(251, 113, 133, 0.2);
+    color: #fff1f2;
   }
 }
 
@@ -166,5 +411,9 @@
   .player-token--active,
   .animate-dice-roll {
     animation: none;
+  }
+
+  .board-special-token {
+    transition: none;
   }
 }

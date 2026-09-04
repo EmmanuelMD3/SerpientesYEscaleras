@@ -1,11 +1,16 @@
 <script setup lang="ts">
-import type { BoardPlayer } from '@embedded-snakes-live/shared';
+import {
+  BOARD_SPECIAL_TYPE,
+  type BoardPlayer,
+  type BoardSpecial,
+} from '@embedded-snakes-live/shared';
 
 import PlayerToken from './PlayerToken.vue';
 
 defineProps<{
   position: number;
   players: BoardPlayer[];
+  special?: BoardSpecial | undefined;
   activePlayerId?: string | undefined;
 }>();
 </script>
@@ -21,6 +26,9 @@ defineProps<{
     <div class="flex items-start justify-between gap-1">
       <span class="board-cell__number">{{ position }}</span>
       <span v-if="position === 40" class="board-cell__goal">Meta</span>
+      <span v-else-if="special" class="board-cell__special">
+        {{ special.type === BOARD_SPECIAL_TYPE.LADDER ? '🪜' : '🐍' }}
+      </span>
     </div>
 
     <div class="board-cell__tokens">

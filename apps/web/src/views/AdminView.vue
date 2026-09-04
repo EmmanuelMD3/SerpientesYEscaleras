@@ -30,6 +30,7 @@ import {
   GAME_STATUS,
   SOCKET_EVENTS,
   type BoardStatePayload,
+  type GameFinishedPayload,
   type GameRoom,
   type PlayerMovePayload,
   type RoomError,
@@ -288,6 +289,14 @@ function handlePlayerMove(payload: PlayerMovePayload): void {
   boardRef.value?.enqueueMove(payload.move);
 }
 
+function handleGameFinished(payload: GameFinishedPayload): void {
+  if (!room.value || payload.roomCode !== room.value.code) {
+    return;
+  }
+
+  room.value = payload.room;
+}
+
 function handleSocketReconnect(): void {
   void attemptAdminRejoin();
 }
@@ -299,6 +308,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on(SOCKET_EVENTS.BOARD_STATE, handleBoardState);
   socket.on(SOCKET_EVENTS.PLAYER_MOVE, handlePlayerMove);
+  socket.on(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.on('connect', handleSocketReconnect);
   void attemptAdminRejoin();
 });
@@ -310,6 +320,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off(SOCKET_EVENTS.BOARD_STATE, handleBoardState);
   socket.off(SOCKET_EVENTS.PLAYER_MOVE, handlePlayerMove);
+  socket.off(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.off('connect', handleSocketReconnect);
 });
 
@@ -339,7 +350,7 @@ watch(joinUrl, async (nextUrl) => {
             class="inline-flex items-center gap-2 rounded-full border border-amber-200/40 bg-amber-200/15 px-4 py-2 text-sm font-black uppercase tracking-wide text-amber-100"
           >
             <Sparkles class="h-4 w-4" aria-hidden="true" />
-            Fase 4A
+            Fase 4B
           </div>
           <div>
             <p class="mb-3 text-lg font-black uppercase tracking-[0.25em] text-emerald-200">

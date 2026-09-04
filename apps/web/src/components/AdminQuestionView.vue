@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { CheckCircle2, Dices, HelpCircle, Users } from '@lucide/vue';
+import { Dices, HelpCircle, Trophy, Users } from '@lucide/vue';
 
 import { GAME_STATUS, type GameRoom, type QuestionOption } from '@embedded-snakes-live/shared';
 
@@ -31,8 +31,17 @@ const hasMoreQuestions = computed(() => {
   return props.room.questionResults.questionNumber < props.room.questionResults.totalQuestions;
 });
 const nextButtonLabel = computed(() =>
-  hasMoreQuestions.value ? 'Siguiente pregunta' : 'Terminar partida',
+  hasMoreQuestions.value ? 'Siguiente pregunta' : 'Nuevo ciclo',
 );
+const winner = computed(() => props.room.winner);
+const leaderboard = computed(() => props.room.finalLeaderboard ?? []);
+const winnerResponseSeconds = computed(() => {
+  if (winner.value?.responseTimeMs === null || winner.value?.responseTimeMs === undefined) {
+    return null;
+  }
+
+  return Math.round(winner.value.responseTimeMs / 10) / 100;
+});
 
 function optionCount(option: QuestionOption): number {
   return (
@@ -131,13 +140,44 @@ function optionCount(option: QuestionOption): number {
 
     <section
       v-else-if="room.status === GAME_STATUS.FINISHED"
-      class="rounded-lg border border-emerald-200/40 bg-emerald-300 p-6 text-zinc-950 shadow-glow"
+      class="rounded-lg border border-amber-200/50 bg-amber-200 p-6 text-zinc-950 shadow-glow"
     >
-      <CheckCircle2 class="h-12 w-12" aria-hidden="true" />
-      <h2 class="mt-4 text-4xl font-black">Ronda terminada</h2>
-      <p class="mt-2 text-lg font-bold">
-        Las posiciones finales permanecen visibles en el tablero.
-      </p>
+      <Trophy class="h-12 w-12" aria-hidden="true" />
+      <p class="mt-4 text-sm font-black uppercase tracking-[0.25em]">Tenemos ganador</p>
+      <h2 class="mt-2 text-5xl font-black uppercase leading-none">
+        {{ winner?.playerName ?? 'Partida terminada' }}
+      </h2>
+      <p class="mt-3 text-lg font-bold">Llego a la casilla 40.</p>
+      <div v-if="winner" class="mt-5 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-lg bg-zinc-950 px-4 py-3 text-white">
+          <p class="text-xs font-black uppercase tracking-wide text-white/50">Ronda</p>
+          <p class="font-mono text-3xl font-black">{{ winner.roundNumber }}</p>
+        </div>
+        <div class="rounded-lg bg-zinc-950 px-4 py-3 text-white">
+          <p class="text-xs font-black uppercase tracking-wide text-white/50">Tiempo final</p>
+          <p class="font-mono text-3xl font-black">
+            {{ winnerResponseSeconds === null ? 'N/D' : `${winnerResponseSeconds}s` }}
+          </p>
+        </div>
+      </div>
+
+      <section v-if="leaderboard.length > 0" class="mt-5 rounded-lg bg-zinc-950 p-4 text-white">
+        <h3 class="text-sm font-black uppercase tracking-wide text-amber-100">
+          Clasificacion final
+        </h3>
+        <ol class="mt-3 grid gap-2">
+          <li
+            v-for="entry in leaderboard"
+            :key="entry.playerId"
+            class="flex items-center justify-between gap-3 rounded-lg bg-white/10 px-3 py-2"
+          >
+            <span class="min-w-0 truncate font-black">
+              {{ entry.rank }}. {{ entry.playerName }}
+            </span>
+            <span class="shrink-0 font-mono font-black">{{ entry.position }}</span>
+          </li>
+        </ol>
+      </section>
     </section>
 
     <section
