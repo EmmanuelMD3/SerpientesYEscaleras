@@ -10,6 +10,7 @@ import {
   getSocket,
   joinRoom,
   rejoinRoom,
+  rollDice as rollDiceRequest,
   socketConnectionStatus,
   submitAnswer,
 } from '../services/socket';
@@ -17,6 +18,8 @@ import {
 import {
   GAME_STATUS,
   SOCKET_EVENTS,
+  type DicePhaseStartPayload,
+  type DiceResultPayload,
   type GameRoom,
   type Player,
   type PlayerQuestionState,
@@ -39,6 +42,7 @@ const errorMessage = ref('');
 const isJoining = ref(false);
 const isRejoining = ref(false);
 const isSubmittingAnswer = ref(false);
+const isRollingDice = ref(false);
 const player = ref<Player | null>(null);
 const room = ref<GameRoom | null>(null);
 const playerState = ref<PlayerQuestionState>({ hasSubmitted: false });
@@ -206,12 +210,50 @@ async function handleSubmitAnswer(optionId: string): Promise<void> {
   }
 }
 
+async function handleRollDice(): Promise<void> {
+  if (!room.value || isRollingDice.value || playerState.value.dice?.rolled) {
+    return;
+  }
+
+  errorMessage.value = '';
+  isRollingDice.value = true;
+  const startedAt = performance.now();
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await rollDiceRequest(socket, {
+      roomCode: room.value.code,
+    });
+    const elapsedMs = performance.now() - startedAt;
+
+    if (elapsedMs < 900) {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, 900 - elapsedMs);
+      });
+    }
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    room.value = response.data.room;
+    playerState.value = response.data.playerState;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'No pudimos lanzar tu dado.';
+  } finally {
+    isRollingDice.value = false;
+  }
+}
+
 function handleRoomState(nextRoom: GameRoom): void {
   if (nextRoom.code !== roomCode.value) {
     return;
   }
 
   room.value = nextRoom;
+  syncDiceStateFromRoom(nextRoom);
 
   if (nextRoom.status === GAME_STATUS.COUNTDOWN) {
     playerState.value = { hasSubmitted: false };
@@ -227,6 +269,29 @@ function handleRoomState(nextRoom: GameRoom): void {
       hasSubmitted: false,
     };
   }
+}
+
+function syncDiceStateFromRoom(nextRoom: GameRoom): void {
+  const currentPlayerId = player.value?.id;
+
+  if (!currentPlayerId) {
+    return;
+  }
+
+  const dicePlayer = nextRoom.dicePlayers?.find((candidate) => candidate.playerId === currentPlayerId);
+
+  if (!dicePlayer) {
+    return;
+  }
+
+  playerState.value = {
+    ...playerState.value,
+    dice: {
+      eligible: dicePlayer.eligible,
+      rolled: dicePlayer.rolled,
+      value: dicePlayer.value,
+    },
+  };
 }
 
 function handleQuestionStarted(payload: QuestionStartedPayload): void {
@@ -281,6 +346,26 @@ function handleQuestionResults(payload: QuestionResultsPayload): void {
   }
 }
 
+function handleDicePhaseStart(payload: DicePhaseStartPayload): void {
+  if (payload.roomCode !== roomCode.value) {
+    return;
+  }
+
+  room.value = payload.room;
+  syncDiceStateFromRoom(payload.room);
+}
+
+function handleDiceResult(payload: DiceResultPayload): void {
+  if (payload.roomCode !== roomCode.value || payload.playerId !== player.value?.id) {
+    return;
+  }
+
+  playerState.value = {
+    ...playerState.value,
+    dice: payload.diceState,
+  };
+}
+
 function handlePlayerState(nextState: PlayerQuestionState): void {
   playerState.value = nextState;
 }
@@ -300,6 +385,9 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.QUESTION_STARTED, handleQuestionStarted);
   socket.on(SOCKET_EVENTS.QUESTION_RESULTS, handleQuestionResults);
   socket.on(SOCKET_EVENTS.ANSWER_REJECTED, handleRoomError);
+  socket.on(SOCKET_EVENTS.DICE_PHASE_START, handleDicePhaseStart);
+  socket.on(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
+  socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on('connect', handleSocketReconnect);
   void attemptPlayerRejoin();
 });
@@ -311,6 +399,9 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.QUESTION_STARTED, handleQuestionStarted);
   socket.off(SOCKET_EVENTS.QUESTION_RESULTS, handleQuestionResults);
   socket.off(SOCKET_EVENTS.ANSWER_REJECTED, handleRoomError);
+  socket.off(SOCKET_EVENTS.DICE_PHASE_START, handleDicePhaseStart);
+  socket.off(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
+  socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off('connect', handleSocketReconnect);
 });
 </script>
@@ -388,7 +479,9 @@ onBeforeUnmount(() => {
             :room="room"
             :player-state="playerState"
             :is-submitting="isSubmittingAnswer"
+            :is-rolling-dice="isRollingDice"
             @answer="handleSubmitAnswer"
+            @roll-dice="handleRollDice"
           />
 
           <p

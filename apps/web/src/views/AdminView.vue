@@ -21,6 +21,7 @@ import {
   nextQuestion,
   rejoinAdminRoom,
   socketConnectionStatus,
+  startDicePhase,
   startGame,
 } from '../services/socket';
 
@@ -44,6 +45,7 @@ const errorMessage = ref('');
 const copyMessage = ref('');
 const isCreating = ref(false);
 const isStarting = ref(false);
+const isStartingDice = ref(false);
 const isAdvancing = ref(false);
 const isRejoining = ref(false);
 const qrDataUrl = ref('');
@@ -220,6 +222,32 @@ async function handleNextQuestion(): Promise<void> {
   }
 }
 
+async function handleStartDicePhase(): Promise<void> {
+  if (!room.value) {
+    return;
+  }
+
+  errorMessage.value = '';
+  isStartingDice.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await startDicePhase(socket, { roomCode: room.value.code });
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    room.value = response.data.room;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'No pudimos habilitar los dados.';
+  } finally {
+    isStartingDice.value = false;
+  }
+}
+
 async function copyJoinUrl(): Promise<void> {
   if (!joinUrl.value) {
     return;
@@ -250,6 +278,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
   socket.on(SOCKET_EVENTS.ROOM_ERROR, handleRoomError);
   socket.on(SOCKET_EVENTS.GAME_ERROR, handleRoomError);
+  socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on('connect', handleSocketReconnect);
   void attemptAdminRejoin();
 });
@@ -258,6 +287,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
   socket.off(SOCKET_EVENTS.ROOM_ERROR, handleRoomError);
   socket.off(SOCKET_EVENTS.GAME_ERROR, handleRoomError);
+  socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off('connect', handleSocketReconnect);
 });
 
@@ -423,7 +453,9 @@ watch(joinUrl, async (nextUrl) => {
           v-else
           :room="room"
           :is-advancing="isAdvancing"
+          :is-starting-dice="isStartingDice"
           @next="handleNextQuestion"
+          @start-dice="handleStartDicePhase"
         />
 
         <p

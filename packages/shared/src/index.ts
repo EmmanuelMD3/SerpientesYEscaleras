@@ -3,6 +3,7 @@ export const GAME_STATUS = {
   COUNTDOWN: 'COUNTDOWN',
   QUESTION_ACTIVE: 'QUESTION_ACTIVE',
   QUESTION_RESULTS: 'QUESTION_RESULTS',
+  DICE_ROLL: 'DICE_ROLL',
   FINISHED: 'FINISHED',
 } as const;
 
@@ -25,6 +26,8 @@ export const PLAYER_RESULT_STATUS = {
 
 export type PlayerResultStatus =
   (typeof PLAYER_RESULT_STATUS)[keyof typeof PLAYER_RESULT_STATUS];
+
+export type DiceValue = 1 | 2 | 3 | 4 | 5 | 6;
 
 export interface Player {
   id: string;
@@ -110,6 +113,34 @@ export interface PlayerQuestionResult {
   responseTimeMs?: number;
 }
 
+export interface DiceState {
+  eligible: boolean;
+  rolled: boolean;
+  value: DiceValue | null;
+}
+
+export interface DicePlayerState extends DiceState {
+  playerId: string;
+  playerName: string;
+  connected: boolean;
+  resultStatus: PlayerResultStatus;
+}
+
+export interface DiceSummary {
+  eligibleCount: number;
+  rolledCount: number;
+  complete: boolean;
+}
+
+export interface RoundResult {
+  questionId: string;
+  playerId: string;
+  resultStatus: PlayerResultStatus;
+  correct: boolean;
+  responseTimeMs: number | null;
+  diceValue: DiceValue | null;
+}
+
 export interface PlayerQuestionState {
   questionId?: string;
   hasSubmitted: boolean;
@@ -117,6 +148,7 @@ export interface PlayerQuestionState {
   answeredAt?: string;
   responseTimeMs?: number;
   result?: PlayerQuestionResult;
+  dice?: DiceState;
 }
 
 export interface GameRoom {
@@ -128,6 +160,8 @@ export interface GameRoom {
   countdown?: CountdownState;
   answerSummary?: QuestionAnswerSummary;
   questionResults?: QuestionResults;
+  diceSummary?: DiceSummary;
+  dicePlayers?: DicePlayerState[];
 }
 
 export const SOCKET_EVENTS = {
@@ -149,6 +183,12 @@ export const SOCKET_EVENTS = {
   ANSWER_SUBMIT: 'answer:submit',
   ANSWER_ACCEPTED: 'answer:accepted',
   ANSWER_REJECTED: 'answer:rejected',
+  DICE_PHASE_START: 'dice:phase:start',
+  DICE_ROLL: 'dice:roll',
+  DICE_RESULT: 'dice:result',
+  DICE_STATE: 'dice:state',
+  DICE_ERROR: 'dice:error',
+  DICE_PHASE_COMPLETE: 'dice:phase:complete',
 } as const;
 
 export const ROOM_ERROR_CODES = {
@@ -168,6 +208,11 @@ export const ROOM_ERROR_CODES = {
   INVALID_OPTION: 'INVALID_OPTION',
   REJOIN_FAILED: 'REJOIN_FAILED',
   NO_MORE_QUESTIONS: 'NO_MORE_QUESTIONS',
+  DICE_NOT_ALLOWED: 'DICE_NOT_ALLOWED',
+  ALREADY_ROLLED: 'ALREADY_ROLLED',
+  INVALID_PHASE: 'INVALID_PHASE',
+  PLAYER_NOT_FOUND: 'PLAYER_NOT_FOUND',
+  DICE_PHASE_NOT_COMPLETE: 'DICE_PHASE_NOT_COMPLETE',
   SERVER_ERROR: 'SERVER_ERROR',
 } as const;
 
@@ -262,6 +307,19 @@ export interface AnswerAcceptedSuccess {
 
 export type AnswerSubmitResponse = SocketAck<AnswerAcceptedSuccess>;
 
+export interface DiceRollPayload {
+  roomCode: string;
+}
+
+export interface DiceRollSuccess {
+  value: DiceValue;
+  diceState: DiceState;
+  playerState: PlayerQuestionState;
+  room: GameRoom;
+}
+
+export type DiceRollResponse = SocketAck<DiceRollSuccess>;
+
 export interface PlayerEventPayload {
   roomCode: string;
   player: Player;
@@ -289,6 +347,30 @@ export interface QuestionResultsPayload {
   playerResult?: PlayerQuestionResult;
 }
 
+export interface DicePhaseStartPayload {
+  roomCode: string;
+  room: GameRoom;
+}
+
+export interface DiceStatePayload {
+  roomCode: string;
+  summary: DiceSummary;
+  players: DicePlayerState[];
+}
+
+export interface DiceResultPayload {
+  roomCode: string;
+  playerId: string;
+  value: DiceValue;
+  diceState: DiceState;
+  summary: DiceSummary;
+}
+
+export interface DicePhaseCompletePayload {
+  roomCode: string;
+  summary: DiceSummary;
+}
+
 export interface ServerToClientEvents {
   [SOCKET_EVENTS.ROOM_STATE]: (room: GameRoom) => void;
   [SOCKET_EVENTS.PLAYER_JOINED]: (payload: PlayerEventPayload) => void;
@@ -301,6 +383,11 @@ export interface ServerToClientEvents {
   [SOCKET_EVENTS.QUESTION_RESULTS]: (payload: QuestionResultsPayload) => void;
   [SOCKET_EVENTS.ANSWER_ACCEPTED]: (payload: AnswerAcceptedSuccess) => void;
   [SOCKET_EVENTS.ANSWER_REJECTED]: (error: RoomError) => void;
+  [SOCKET_EVENTS.DICE_PHASE_START]: (payload: DicePhaseStartPayload) => void;
+  [SOCKET_EVENTS.DICE_RESULT]: (payload: DiceResultPayload) => void;
+  [SOCKET_EVENTS.DICE_STATE]: (payload: DiceStatePayload) => void;
+  [SOCKET_EVENTS.DICE_ERROR]: (error: RoomError) => void;
+  [SOCKET_EVENTS.DICE_PHASE_COMPLETE]: (payload: DicePhaseCompletePayload) => void;
 }
 
 export interface ClientToServerEvents {
@@ -328,6 +415,14 @@ export interface ClientToServerEvents {
   [SOCKET_EVENTS.ANSWER_SUBMIT]: (
     payload: AnswerSubmitPayload,
     ack: (response: AnswerSubmitResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.DICE_PHASE_START]: (
+    payload: GameControlPayload,
+    ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.DICE_ROLL]: (
+    payload: DiceRollPayload,
+    ack: (response: DiceRollResponse) => void,
   ) => void;
 }
 

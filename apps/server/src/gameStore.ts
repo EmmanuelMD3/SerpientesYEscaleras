@@ -7,6 +7,10 @@ import {
   type AnswerAcceptedSuccess,
   type AnswerSubmitPayload,
   type CountdownState,
+  type DicePlayerState,
+  type DiceState,
+  type DiceSummary,
+  type DiceValue,
   type GameRoom,
   type Player,
   type PlayerAnswer,
@@ -17,6 +21,7 @@ import {
   type QuestionAnswerSummary,
   type QuestionResults,
   type RoomError,
+  type RoundResult,
 } from '@embedded-snakes-live/shared';
 
 import { questions } from './data/questions.js';
@@ -49,6 +54,8 @@ interface InternalGameRoom {
   questionOrder: Question[];
   currentQuestionIndex: number;
   answersByQuestion: Map<string, Map<string, PlayerAnswer>>;
+  diceStatesByQuestion: Map<string, Map<string, DiceState>>;
+  roundResults: RoundResult[];
   countdown: CountdownState | undefined;
   activeQuestion: ActiveQuestion | undefined;
   questionResults: QuestionResults | undefined;
@@ -104,6 +111,21 @@ type EndQuestionResult = StoreResult<{
   playerResults: PlayerQuestionResult[];
 }>;
 
+type StartDicePhaseResult = StoreResult<{
+  room: GameRoom;
+  diceSummary: DiceSummary;
+  dicePlayers: DicePlayerState[];
+}>;
+
+type RollDiceResult = StoreResult<{
+  room: GameRoom;
+  value: DiceValue;
+  diceState: DiceState;
+  playerState: PlayerQuestionState;
+  diceSummary: DiceSummary;
+  shouldCompleteDicePhase: boolean;
+}>;
+
 const rooms = new Map<string, InternalGameRoom>();
 const cleanupTimers = new Map<string, NodeJS.Timeout>();
 
@@ -133,6 +155,80 @@ function answerSummary(room: InternalGameRoom): QuestionAnswerSummary | undefine
   };
 }
 
+function getDiceMap(
+  room: InternalGameRoom,
+  questionId: string,
+): Map<string, DiceState> | undefined {
+  return room.diceStatesByQuestion.get(questionId);
+}
+
+function diceStateForPlayer(room: InternalGameRoom, playerId: string): DiceState | undefined {
+  if (!room.activeQuestion || room.status !== GAME_STATUS.DICE_ROLL) {
+    return undefined;
+  }
+
+  const diceState = getDiceMap(room, room.activeQuestion.question.id)?.get(playerId);
+
+  return diceState ? { ...diceState } : undefined;
+}
+
+function diceSummary(room: InternalGameRoom): DiceSummary | undefined {
+  if (!room.activeQuestion || room.status !== GAME_STATUS.DICE_ROLL) {
+    return undefined;
+  }
+
+  const diceStates = getDiceMap(room, room.activeQuestion.question.id);
+
+  if (!diceStates) {
+    return undefined;
+  }
+
+  const states = Array.from(diceStates.values());
+  const eligibleCount = states.filter((state) => state.eligible).length;
+  const rolledCount = states.filter((state) => state.eligible && state.rolled).length;
+
+  return {
+    eligibleCount,
+    rolledCount,
+    complete: rolledCount >= eligibleCount,
+  };
+}
+
+function publicDicePlayers(room: InternalGameRoom): DicePlayerState[] | undefined {
+  if (!room.activeQuestion || room.status !== GAME_STATUS.DICE_ROLL) {
+    return undefined;
+  }
+
+  const question = room.activeQuestion.question;
+  const diceStates = getDiceMap(room, question.id);
+  const answers = room.answersByQuestion.get(question.id);
+
+  if (!diceStates) {
+    return undefined;
+  }
+
+  return room.players.map((player) => {
+    const diceState =
+      diceStates.get(player.id) ??
+      ({
+        eligible: false,
+        rolled: false,
+        value: null,
+      } satisfies DiceState);
+    const result = playerResultFromAnswer(question, answers?.get(player.id));
+
+    return {
+      playerId: player.id,
+      playerName: player.name,
+      connected: player.connected,
+      resultStatus: result.status,
+      eligible: diceState.eligible,
+      rolled: diceState.rolled,
+      value: diceState.value,
+    };
+  });
+}
+
 function publicRoom(room: InternalGameRoom): GameRoom {
   const result: GameRoom = {
     code: room.code,
@@ -147,7 +243,8 @@ function publicRoom(room: InternalGameRoom): GameRoom {
 
   if (
     (room.status === GAME_STATUS.QUESTION_ACTIVE ||
-      room.status === GAME_STATUS.QUESTION_RESULTS) &&
+      room.status === GAME_STATUS.QUESTION_RESULTS ||
+      room.status === GAME_STATUS.DICE_ROLL) &&
     room.activeQuestion
   ) {
     result.currentQuestion = {
@@ -162,11 +259,25 @@ function publicRoom(room: InternalGameRoom): GameRoom {
     result.answerSummary = summary;
   }
 
-  if (room.status === GAME_STATUS.QUESTION_RESULTS && room.questionResults) {
+  if (
+    (room.status === GAME_STATUS.QUESTION_RESULTS || room.status === GAME_STATUS.DICE_ROLL) &&
+    room.questionResults
+  ) {
     result.questionResults = {
       ...room.questionResults,
       distribution: room.questionResults.distribution.map((item) => ({ ...item })),
     };
+  }
+
+  const currentDiceSummary = diceSummary(room);
+  const currentDicePlayers = publicDicePlayers(room);
+
+  if (currentDiceSummary) {
+    result.diceSummary = currentDiceSummary;
+  }
+
+  if (currentDicePlayers) {
+    result.dicePlayers = currentDicePlayers;
   }
 
   return result;
@@ -365,6 +476,40 @@ function playerResultFromAnswer(
   };
 }
 
+function randomDiceValue(): DiceValue {
+  return randomInt(1, 7) as DiceValue;
+}
+
+function upsertRoundResult(
+  room: InternalGameRoom,
+  questionId: string,
+  playerId: string,
+  result: PlayerQuestionResult,
+): RoundResult {
+  let roundResult = room.roundResults.find(
+    (candidate) => candidate.questionId === questionId && candidate.playerId === playerId,
+  );
+
+  if (!roundResult) {
+    roundResult = {
+      questionId,
+      playerId,
+      resultStatus: result.status,
+      correct: result.correct,
+      responseTimeMs: result.responseTimeMs ?? null,
+      diceValue: null,
+    };
+    room.roundResults.push(roundResult);
+    return roundResult;
+  }
+
+  roundResult.resultStatus = result.status;
+  roundResult.correct = result.correct;
+  roundResult.responseTimeMs = result.responseTimeMs ?? null;
+
+  return roundResult;
+}
+
 function getPlayerQuestionStateInternal(
   room: InternalGameRoom,
   playerId: string,
@@ -388,8 +533,14 @@ function getPlayerQuestionStateInternal(
     state.responseTimeMs = answer.responseTimeMs;
   }
 
-  if (room.status === GAME_STATUS.QUESTION_RESULTS) {
+  if (room.status === GAME_STATUS.QUESTION_RESULTS || room.status === GAME_STATUS.DICE_ROLL) {
     state.result = playerResultFromAnswer(room.activeQuestion.question, answer);
+  }
+
+  const diceState = diceStateForPlayer(room, playerId);
+
+  if (diceState) {
+    state.dice = diceState;
   }
 
   return state;
@@ -416,6 +567,8 @@ export function createRoom(): { room: GameRoom; adminSessionToken: string } {
     questionOrder: [],
     currentQuestionIndex: -1,
     answersByQuestion: new Map<string, Map<string, PlayerAnswer>>(),
+    diceStatesByQuestion: new Map<string, Map<string, DiceState>>(),
+    roundResults: [],
     countdown: undefined,
     activeQuestion: undefined,
     questionResults: undefined,
@@ -669,6 +822,9 @@ export function startGame(roomCode: string, socketId: string): GameControlResult
 
   room.questionOrder = shuffledQuestions();
   room.currentQuestionIndex = 0;
+  room.answersByQuestion.clear();
+  room.diceStatesByQuestion.clear();
+  room.roundResults = [];
   room.status = GAME_STATUS.COUNTDOWN;
   room.countdown = makeCountdown(room);
   room.activeQuestion = undefined;
@@ -919,6 +1075,11 @@ export function endQuestion(roomCode: string): EndQuestionResult {
     distribution,
   };
 
+  for (const player of activePlayersForQuestion(room)) {
+    const result = playerResultFromAnswer(question, answers.get(player.id));
+    upsertRoundResult(room, question.id, player.id, result);
+  }
+
   return {
     ok: true,
     room: publicRoom(room),
@@ -926,6 +1087,138 @@ export function endQuestion(roomCode: string): EndQuestionResult {
     playerResults: activePlayersForQuestion(room).map((player) =>
       getPlayerQuestionStateInternal(room, player.id).result!,
     ),
+  };
+}
+
+export function startDicePhase(roomCode: string, socketId: string): StartDicePhaseResult {
+  const adminResult = assertAdminRoom(roomCode, socketId);
+
+  if (!adminResult.ok) {
+    return adminResult;
+  }
+
+  const { room } = adminResult;
+
+  if (room.status === GAME_STATUS.DICE_ROLL) {
+    const currentDiceSummary = diceSummary(room);
+    const currentDicePlayers = publicDicePlayers(room);
+
+    if (currentDiceSummary && currentDicePlayers) {
+      return {
+        ok: true,
+        room: publicRoom(room),
+        diceSummary: currentDiceSummary,
+        dicePlayers: currentDicePlayers,
+      };
+    }
+  }
+
+  if (room.status !== GAME_STATUS.QUESTION_RESULTS || !room.activeQuestion || !room.questionResults) {
+    return {
+      ok: false,
+      error: roomError(
+        ROOM_ERROR_CODES.INVALID_PHASE,
+        'Primero deben mostrarse los resultados de la pregunta.',
+      ),
+    };
+  }
+
+  const { question } = room.activeQuestion;
+  const answers = room.answersByQuestion.get(question.id);
+  const diceStates = new Map<string, DiceState>();
+
+  for (const player of activePlayersForQuestion(room)) {
+    const result = playerResultFromAnswer(question, answers?.get(player.id));
+    upsertRoundResult(room, question.id, player.id, result);
+    diceStates.set(player.id, {
+      eligible: result.status === PLAYER_RESULT_STATUS.CORRECT,
+      rolled: false,
+      value: null,
+    });
+  }
+
+  room.status = GAME_STATUS.DICE_ROLL;
+  room.diceStatesByQuestion.set(question.id, diceStates);
+
+  return {
+    ok: true,
+    room: publicRoom(room),
+    diceSummary: diceSummary(room) ?? { eligibleCount: 0, rolledCount: 0, complete: true },
+    dicePlayers: publicDicePlayers(room) ?? [],
+  };
+}
+
+export function rollDice(
+  roomCode: string,
+  playerId: string,
+  socketId: string,
+): RollDiceResult {
+  const room = getInternalRoom(roomCode);
+
+  if (!room) {
+    return {
+      ok: false,
+      error: roomError(
+        ROOM_ERROR_CODES.ROOM_NOT_FOUND,
+        'No encontramos una partida con ese codigo.',
+      ),
+    };
+  }
+
+  const player = getInternalPlayer(room, playerId);
+
+  if (!player || !player.socketIds.has(socketId)) {
+    return {
+      ok: false,
+      error: roomError(ROOM_ERROR_CODES.PLAYER_NOT_FOUND, 'No pudimos validar tu jugador.'),
+    };
+  }
+
+  if (room.status !== GAME_STATUS.DICE_ROLL || !room.activeQuestion) {
+    return {
+      ok: false,
+      error: roomError(ROOM_ERROR_CODES.INVALID_PHASE, 'El dado no esta habilitado ahora.'),
+    };
+  }
+
+  const { question } = room.activeQuestion;
+  const diceStates = getDiceMap(room, question.id);
+  const diceState = diceStates?.get(player.id);
+
+  if (!diceStates || !diceState || !diceState.eligible) {
+    return {
+      ok: false,
+      error: roomError(ROOM_ERROR_CODES.DICE_NOT_ALLOWED, 'No puedes lanzar el dado esta ronda.'),
+    };
+  }
+
+  if (diceState.rolled) {
+    return {
+      ok: false,
+      error: roomError(ROOM_ERROR_CODES.ALREADY_ROLLED, 'Ya lanzaste tu dado esta ronda.'),
+    };
+  }
+
+  const value = randomDiceValue();
+  diceState.rolled = true;
+  diceState.value = value;
+
+  const answer = room.answersByQuestion.get(question.id)?.get(player.id);
+  const questionResult = playerResultFromAnswer(question, answer);
+  const roundResult = upsertRoundResult(room, question.id, player.id, questionResult);
+  roundResult.diceValue = value;
+
+  const currentDiceSummary = diceSummary(room) ?? { eligibleCount: 0, rolledCount: 0, complete: true };
+  const playerState = getPlayerQuestionStateInternal(room, player.id);
+
+  return {
+    ok: true,
+    room: publicRoom(room),
+    value,
+    diceState: { ...diceState },
+    playerState,
+    diceSummary: currentDiceSummary,
+    shouldCompleteDicePhase: currentDiceSummary.complete,
   };
 }
 
@@ -938,13 +1231,22 @@ export function requestNextQuestion(roomCode: string, socketId: string): GameCon
 
   const { room } = adminResult;
 
-  if (room.status !== GAME_STATUS.QUESTION_RESULTS) {
+  if (room.status !== GAME_STATUS.DICE_ROLL) {
     return {
       ok: false,
       error: roomError(
-        ROOM_ERROR_CODES.QUESTION_RESULTS_NOT_READY,
-        'Primero deben mostrarse los resultados de la pregunta actual.',
+        ROOM_ERROR_CODES.DICE_PHASE_NOT_COMPLETE,
+        'Primero habilita y completa la fase de dados.',
       ),
+    };
+  }
+
+  const currentDiceSummary = diceSummary(room);
+
+  if (!currentDiceSummary?.complete) {
+    return {
+      ok: false,
+      error: roomError(ROOM_ERROR_CODES.DICE_PHASE_NOT_COMPLETE, 'Aun faltan dados por lanzar.'),
     };
   }
 
@@ -954,6 +1256,7 @@ export function requestNextQuestion(roomCode: string, socketId: string): GameCon
     room.status = GAME_STATUS.FINISHED;
     room.countdown = undefined;
     room.activeQuestion = undefined;
+    room.questionResults = undefined;
 
     return {
       ok: true,

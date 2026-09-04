@@ -32,4 +32,27 @@
       linear-gradient(240deg, rgba(251, 191, 36, 0.16), transparent 36%),
       linear-gradient(160deg, #151515 0%, #17231d 42%, #3b1f31 100%);
   }
+
+  .animate-dice-roll {
+    animation: dice-roll 0.9s ease-in-out infinite;
+  }
+}
+
+@keyframes dice-roll {
+  0%,
+  100% {
+    transform: rotate(0deg) scale(1);
+  }
+
+  25% {
+    transform: rotate(12deg) scale(1.05);
+  }
+
+  50% {
+    transform: rotate(-10deg) scale(0.96);
+  }
+
+  75% {
+    transform: rotate(8deg) scale(1.04);
+  }
 }

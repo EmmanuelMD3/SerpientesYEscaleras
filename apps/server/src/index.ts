@@ -15,6 +15,8 @@ import {
   type AnswerSubmitPayload,
   type AnswerSubmitResponse,
   type ClientToServerEvents,
+  type DiceRollPayload,
+  type DiceRollResponse,
   type GameControlPayload,
   type GameControlResponse,
   type GameRoom,
@@ -42,7 +44,9 @@ import {
   rejoinPlayer,
   removeAdminSocket,
   requestNextQuestion,
+  rollDice,
   startGame,
+  startDicePhase,
   submitAnswer,
 } from './gameStore.js';
 
@@ -172,6 +176,10 @@ function emitAnswerRejected(socketId: string, error: RoomError): void {
   io.to(socketId).emit(SOCKET_EVENTS.ANSWER_REJECTED, error);
 }
 
+function emitDiceError(socketId: string, error: RoomError): void {
+  io.to(socketId).emit(SOCKET_EVENTS.DICE_ERROR, error);
+}
+
 function failRoomAck<TData>(
   socketId: string,
   ack: ((response: SocketAck<TData>) => void) | undefined,
@@ -197,6 +205,15 @@ function failAnswerAck(
 ): void {
   ack?.({ ok: false, error });
   emitAnswerRejected(socketId, error);
+}
+
+function failDiceAck(
+  socketId: string,
+  ack: ((response: DiceRollResponse) => void) | undefined,
+  error: RoomError,
+): void {
+  ack?.({ ok: false, error });
+  emitDiceError(socketId, error);
 }
 
 function msUntil(isoDate: string): number {
@@ -241,6 +258,29 @@ function emitAllPlayerQuestionStates(room: GameRoom): void {
   for (const player of room.players) {
     emitPlayerQuestionState(room.code, player.id);
   }
+}
+
+function emitDiceState(room: GameRoom): void {
+  if (!room.diceSummary || !room.dicePlayers) {
+    return;
+  }
+
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.DICE_STATE, {
+    roomCode: room.code,
+    summary: room.diceSummary,
+    players: room.dicePlayers,
+  });
+}
+
+function emitDicePhaseComplete(room: GameRoom): void {
+  if (!room.diceSummary?.complete) {
+    return;
+  }
+
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.DICE_PHASE_COMPLETE, {
+    roomCode: room.code,
+    summary: room.diceSummary,
+  });
 }
 
 function emitQuestionResults(room: GameRoom): void {
@@ -578,6 +618,44 @@ io.on('connection', (socket) => {
     scheduleCountdown(result.room);
   });
 
+  socket.on(SOCKET_EVENTS.DICE_PHASE_START, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar la fase de dados.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const result = startDicePhase(payload.roomCode, socket.id);
+
+    if (!result.ok) {
+      failGameAck(socket.id, ack, result.error);
+      return;
+    }
+
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+      },
+    });
+    io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.DICE_PHASE_START, {
+      roomCode: result.room.code,
+      room: result.room,
+    });
+    emitRoomState(result.room);
+    emitDiceState(result.room);
+    emitAllPlayerQuestionStates(result.room);
+    emitDicePhaseComplete(result.room);
+  });
+
   socket.on(SOCKET_EVENTS.QUESTION_NEXT, (payload: GameControlPayload, ack) => {
     if (typeof ack !== 'function') {
       failGameAck(
@@ -608,6 +686,73 @@ io.on('connection', (socket) => {
     });
     emitRoomState(result.room);
     scheduleCountdown(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.DICE_ROLL, (payload: DiceRollPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failDiceAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar tu lanzamiento.'),
+      );
+      return;
+    }
+
+    const { playerId, role, roomCode } = socket.data;
+
+    if (role !== 'player' || !roomCode || !playerId) {
+      failDiceAck(
+        socket.id,
+        ack,
+        makeRoomError(ROOM_ERROR_CODES.PLAYER_NOT_FOUND, 'No pudimos validar tu jugador.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failDiceAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    if (payload.roomCode.trim().toUpperCase() !== roomCode) {
+      failDiceAck(
+        socket.id,
+        ack,
+        makeRoomError(ROOM_ERROR_CODES.ROOM_NOT_FOUND, 'La sala de esta conexion no coincide.'),
+      );
+      return;
+    }
+
+    const result = rollDice(roomCode, playerId, socket.id);
+
+    if (!result.ok) {
+      failDiceAck(socket.id, ack, result.error);
+      return;
+    }
+
+    ack({
+      ok: true,
+      data: {
+        value: result.value,
+        diceState: result.diceState,
+        playerState: result.playerState,
+        room: result.room,
+      },
+    });
+    io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.DICE_RESULT, {
+      roomCode: result.room.code,
+      playerId,
+      value: result.value,
+      diceState: result.diceState,
+      summary: result.diceSummary,
+    });
+    emitPlayerQuestionState(result.room.code, playerId);
+    emitRoomState(result.room);
+    emitDiceState(result.room);
+
+    if (result.shouldCompleteDicePhase) {
+      emitDicePhaseComplete(result.room);
+    }
   });
 
   socket.on(SOCKET_EVENTS.ANSWER_SUBMIT, (payload: AnswerSubmitPayload, ack) => {

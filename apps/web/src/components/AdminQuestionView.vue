@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { ArrowRight, CheckCircle2, HelpCircle, Users } from '@lucide/vue';
+import { CheckCircle2, Dices, HelpCircle, Users } from '@lucide/vue';
 
 import {
   GAME_STATUS,
@@ -8,6 +8,7 @@ import {
   type QuestionOption,
 } from '@embedded-snakes-live/shared';
 
+import AdminDicePanel from './AdminDicePanel.vue';
 import AnswerOption from './AnswerOption.vue';
 import CountdownOverlay from './CountdownOverlay.vue';
 import QuestionResults from './QuestionResults.vue';
@@ -16,10 +17,12 @@ import QuestionTimer from './QuestionTimer.vue';
 const props = defineProps<{
   room: GameRoom;
   isAdvancing?: boolean;
+  isStartingDice?: boolean;
 }>();
 
 const emit = defineEmits<{
   next: [];
+  startDice: [];
 }>();
 
 const question = computed(() => props.room.currentQuestion);
@@ -95,11 +98,11 @@ function optionCount(option: QuestionOption): number {
           <button
             class="inline-flex min-h-14 items-center justify-center gap-3 rounded-lg bg-emerald-300 px-6 text-base font-black uppercase text-zinc-950 shadow-glow transition hover:-translate-y-0.5 hover:bg-emerald-200 disabled:cursor-wait disabled:opacity-70"
             type="button"
-            :disabled="isAdvancing"
-            @click="emit('next')"
+            :disabled="isStartingDice"
+            @click="emit('startDice')"
           >
-            {{ isAdvancing ? 'Preparando...' : nextButtonLabel }}
-            <ArrowRight class="h-5 w-5" aria-hidden="true" />
+            {{ isStartingDice ? 'Habilitando...' : 'Habilitar dados' }}
+            <Dices class="h-5 w-5" aria-hidden="true" />
           </button>
         </div>
       </header>
@@ -120,13 +123,21 @@ function optionCount(option: QuestionOption): number {
       <QuestionResults :room="room" />
     </template>
 
+    <AdminDicePanel
+      v-else-if="room.status === GAME_STATUS.DICE_ROLL"
+      :room="room"
+      :is-advancing="isAdvancing"
+      :next-button-label="nextButtonLabel"
+      @next="emit('next')"
+    />
+
     <section
       v-else-if="room.status === GAME_STATUS.FINISHED"
       class="rounded-lg border border-emerald-200/40 bg-emerald-300 p-6 text-zinc-950 shadow-glow"
     >
       <CheckCircle2 class="h-12 w-12" aria-hidden="true" />
       <h2 class="mt-4 text-4xl font-black">Ronda terminada</h2>
-      <p class="mt-2 text-lg font-bold">La Fase 2 quedo cerrada. No hay tablero ni movimiento aun.</p>
+      <p class="mt-2 text-lg font-bold">La Fase 3 quedo cerrada. No hay tablero ni movimiento aun.</p>
     </section>
 
     <section v-else class="rounded-lg border border-white/15 bg-black/25 p-6 shadow-2xl backdrop-blur">

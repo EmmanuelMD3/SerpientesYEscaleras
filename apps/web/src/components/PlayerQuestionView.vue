@@ -12,16 +12,19 @@ import {
 
 import AnswerOption from './AnswerOption.vue';
 import CountdownOverlay from './CountdownOverlay.vue';
+import DiceRoll from './DiceRoll.vue';
 import QuestionTimer from './QuestionTimer.vue';
 
 const props = defineProps<{
   room: GameRoom;
   playerState: PlayerQuestionState;
-  isSubmitting?: boolean;
+  isSubmitting?: boolean | undefined;
+  isRollingDice?: boolean | undefined;
 }>();
 
 const emit = defineEmits<{
   answer: [optionId: string];
+  rollDice: [];
 }>();
 
 const question = computed(() => props.room.currentQuestion);
@@ -154,6 +157,14 @@ function isIncorrectSelection(
         Esperando al administrador
       </p>
     </template>
+
+    <DiceRoll
+      v-else-if="room.status === GAME_STATUS.DICE_ROLL"
+      :result="playerState.result"
+      :dice="playerState.dice"
+      :rolling="isRollingDice"
+      @roll="emit('rollDice')"
+    />
 
     <section
       v-else-if="room.status === GAME_STATUS.FINISHED"

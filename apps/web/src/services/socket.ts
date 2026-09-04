@@ -7,6 +7,8 @@ import {
   type AnswerSubmitResponse,
   type ClientToServerEvents,
   type CreateRoomResponse,
+  type DiceRollPayload,
+  type DiceRollResponse,
   type GameControlPayload,
   type GameControlResponse,
   type JoinRoomPayload,
@@ -251,6 +253,50 @@ export function submitAnswer(
     }, 4_000);
 
     socketInstance.emit(SOCKET_EVENTS.ANSWER_SUBMIT, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function startDicePhase(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<GameControlResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en habilitar los dados.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.DICE_PHASE_START, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function rollDice(
+  socketInstance: AppSocket,
+  payload: DiceRollPayload,
+): Promise<DiceRollResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en lanzar el dado.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.DICE_ROLL, payload, (response) => {
       window.clearTimeout(timeout);
       resolve(response);
     });
