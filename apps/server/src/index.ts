@@ -8,25 +8,42 @@ import { fileURLToPath } from 'node:url';
 import { Server, type ServerOptions } from 'socket.io';
 
 import {
+  GAME_STATUS,
   ROOM_ERROR_CODES,
   SOCKET_EVENTS,
+  type AdminRejoinPayload,
+  type AnswerSubmitPayload,
+  type AnswerSubmitResponse,
   type ClientToServerEvents,
-  type CreateRoomResponse,
+  type GameControlPayload,
+  type GameControlResponse,
+  type GameRoom,
   type InterServerEvents,
   type JoinRoomPayload,
-  type JoinRoomResponse,
+  type RejoinRoomPayload,
   type RoomError,
   type ServerToClientEvents,
+  type SocketAck,
   type SocketData,
 } from '@embedded-snakes-live/shared';
 
 import {
   addAdminSocket,
   addPlayer,
+  beginQuestion,
   createRoom,
+  endQuestion,
+  getAdminSocketIds,
+  getPlayerQuestionState,
+  getPlayerSocketIds,
   getRoom,
   markPlayerDisconnected,
+  rejoinAdmin,
+  rejoinPlayer,
   removeAdminSocket,
+  requestNextQuestion,
+  startGame,
+  submitAnswer,
 } from './gameStore.js';
 
 dotenv.config();
@@ -35,6 +52,9 @@ const DEFAULT_WEB_ORIGINS = ['http://localhost:5173', 'http://127.0.0.1:5173'];
 const isProduction = process.env.NODE_ENV === 'production';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDistPath = resolve(__dirname, '../../web/dist');
+
+const countdownTimers = new Map<string, NodeJS.Timeout>();
+const questionTimers = new Map<string, NodeJS.Timeout>();
 
 function parsePort(value: string | undefined): number {
   const parsedPort = Number(value ?? 3000);
@@ -125,33 +145,208 @@ function roomChannel(roomCode: string): string {
   return `room:${roomCode}`;
 }
 
+function makeRoomError(code: RoomError['code'], message: string): RoomError {
+  return { code, message };
+}
+
+function connectionAlreadyAssignedError(): RoomError {
+  return makeRoomError(
+    ROOM_ERROR_CODES.CONNECTION_ALREADY_ASSIGNED,
+    'Esta conexion ya pertenece a una partida. Abre otra pestana para iniciar otra sala.',
+  );
+}
+
+function invalidPayloadError(message = 'La solicitud esta incompleta.'): RoomError {
+  return makeRoomError(ROOM_ERROR_CODES.SERVER_ERROR, message);
+}
+
 function emitRoomError(socketId: string, error: RoomError): void {
   io.to(socketId).emit(SOCKET_EVENTS.ROOM_ERROR, error);
 }
 
-function failCreateRoom(
+function emitGameError(socketId: string, error: RoomError): void {
+  io.to(socketId).emit(SOCKET_EVENTS.GAME_ERROR, error);
+}
+
+function emitAnswerRejected(socketId: string, error: RoomError): void {
+  io.to(socketId).emit(SOCKET_EVENTS.ANSWER_REJECTED, error);
+}
+
+function failRoomAck<TData>(
   socketId: string,
-  ack: ((response: CreateRoomResponse) => void) | undefined,
+  ack: ((response: SocketAck<TData>) => void) | undefined,
   error: RoomError,
 ): void {
   ack?.({ ok: false, error });
   emitRoomError(socketId, error);
 }
 
-function failJoinRoom(
+function failGameAck(
   socketId: string,
-  ack: ((response: JoinRoomResponse) => void) | undefined,
+  ack: ((response: GameControlResponse) => void) | undefined,
   error: RoomError,
 ): void {
   ack?.({ ok: false, error });
-  emitRoomError(socketId, error);
+  emitGameError(socketId, error);
 }
 
-function connectionAlreadyAssignedError(): RoomError {
-  return {
-    code: ROOM_ERROR_CODES.CONNECTION_ALREADY_ASSIGNED,
-    message: 'Esta conexion ya pertenece a una partida. Abre otra pestana para iniciar otra sala.',
+function failAnswerAck(
+  socketId: string,
+  ack: ((response: AnswerSubmitResponse) => void) | undefined,
+  error: RoomError,
+): void {
+  ack?.({ ok: false, error });
+  emitAnswerRejected(socketId, error);
+}
+
+function msUntil(isoDate: string): number {
+  return Math.max(0, new Date(isoDate).getTime() - Date.now());
+}
+
+function clearCountdownTimer(roomCode: string): void {
+  const timer = countdownTimers.get(roomCode);
+
+  if (timer) {
+    clearTimeout(timer);
+    countdownTimers.delete(roomCode);
+  }
+}
+
+function clearQuestionTimer(roomCode: string): void {
+  const timer = questionTimers.get(roomCode);
+
+  if (timer) {
+    clearTimeout(timer);
+    questionTimers.delete(roomCode);
+  }
+}
+
+function emitRoomState(room: GameRoom): void {
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.ROOM_STATE, room);
+}
+
+function emitPlayerQuestionState(roomCode: string, playerId: string): void {
+  const state = getPlayerQuestionState(roomCode, playerId);
+
+  if (!state) {
+    return;
+  }
+
+  for (const socketId of getPlayerSocketIds(roomCode, playerId)) {
+    io.to(socketId).emit(SOCKET_EVENTS.PLAYER_STATE, state);
+  }
+}
+
+function emitAllPlayerQuestionStates(room: GameRoom): void {
+  for (const player of room.players) {
+    emitPlayerQuestionState(room.code, player.id);
+  }
+}
+
+function emitQuestionResults(room: GameRoom): void {
+  if (!room.questionResults) {
+    return;
+  }
+
+  const adminPayload = {
+    roomCode: room.code,
+    results: room.questionResults,
   };
+
+  for (const socketId of getAdminSocketIds(room.code)) {
+    io.to(socketId).emit(SOCKET_EVENTS.QUESTION_RESULTS, adminPayload);
+  }
+
+  for (const player of room.players) {
+    const playerState = getPlayerQuestionState(room.code, player.id);
+    const playerPayload = playerState?.result
+      ? {
+          roomCode: room.code,
+          results: room.questionResults,
+          playerResult: playerState.result,
+        }
+      : adminPayload;
+
+    for (const socketId of getPlayerSocketIds(room.code, player.id)) {
+      io.to(socketId).emit(SOCKET_EVENTS.QUESTION_RESULTS, playerPayload);
+    }
+  }
+}
+
+function finishQuestionAndBroadcast(roomCode: string): void {
+  clearQuestionTimer(roomCode);
+
+  const result = endQuestion(roomCode);
+
+  if (!result.ok) {
+    io.to(roomChannel(roomCode)).emit(SOCKET_EVENTS.GAME_ERROR, result.error);
+    return;
+  }
+
+  io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.QUESTION_ENDED, {
+    roomCode: result.room.code,
+    questionId: result.results.questionId,
+  });
+  emitRoomState(result.room);
+  emitQuestionResults(result.room);
+  emitAllPlayerQuestionStates(result.room);
+}
+
+function scheduleQuestionEnd(room: GameRoom): void {
+  clearQuestionTimer(room.code);
+
+  if (room.status !== GAME_STATUS.QUESTION_ACTIVE || !room.currentQuestion) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    questionTimers.delete(room.code);
+    finishQuestionAndBroadcast(room.code);
+  }, msUntil(room.currentQuestion.expiresAt));
+
+  questionTimers.set(room.code, timer);
+}
+
+function scheduleCountdown(room: GameRoom): void {
+  clearCountdownTimer(room.code);
+
+  if (room.status !== GAME_STATUS.COUNTDOWN || !room.countdown) {
+    return;
+  }
+
+  const timer = setTimeout(() => {
+    countdownTimers.delete(room.code);
+
+    const result = beginQuestion(room.code);
+
+    if (!result.ok) {
+      io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.GAME_ERROR, result.error);
+
+      const latestRoom = getRoom(room.code);
+      if (latestRoom) {
+        emitRoomState(latestRoom);
+      }
+
+      return;
+    }
+
+    io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.QUESTION_STARTED, {
+      roomCode: result.room.code,
+      question: result.question,
+      answerSummary: result.answerSummary,
+    });
+    emitRoomState(result.room);
+    emitAllPlayerQuestionStates(result.room);
+
+    if (result.answerSummary.activePlayerCount === 0) {
+      finishQuestionAndBroadcast(result.room.code);
+      return;
+    }
+
+    scheduleQuestionEnd(result.room);
+  }, msUntil(room.countdown.endsAt));
+
+  countdownTimers.set(room.code, timer);
 }
 
 io.on('connection', (socket) => {
@@ -159,23 +354,24 @@ io.on('connection', (socket) => {
 
   socket.on(SOCKET_EVENTS.ROOM_CREATE, (ack) => {
     if (typeof ack !== 'function') {
-      failCreateRoom(socket.id, undefined, {
-        code: ROOM_ERROR_CODES.SERVER_ERROR,
-        message: 'No pudimos confirmar la creacion de la partida.',
-      });
+      failRoomAck<never>(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar la creacion de la partida.'),
+      );
       return;
     }
 
     if (socket.data.role || socket.data.roomCode) {
-      failCreateRoom(socket.id, ack, connectionAlreadyAssignedError());
+      failRoomAck(socket.id, ack, connectionAlreadyAssignedError());
       return;
     }
 
-    const room = createRoom();
-    const activeRoom = addAdminSocket(room.code, socket.id);
+    const created = createRoom();
+    const activeRoom = addAdminSocket(created.room.code, socket.id);
 
     if (!activeRoom) {
-      failCreateRoom(socket.id, ack, {
+      failRoomAck(socket.id, ack, {
         code: ROOM_ERROR_CODES.SERVER_ERROR,
         message: 'No pudimos crear la partida. Intentalo de nuevo.',
       });
@@ -184,6 +380,7 @@ io.on('connection', (socket) => {
 
     socket.data.role = 'admin';
     socket.data.roomCode = activeRoom.code;
+    socket.data.sessionToken = created.adminSessionToken;
     socket.join(roomChannel(activeRoom.code));
 
     ack({
@@ -191,44 +388,97 @@ io.on('connection', (socket) => {
       data: {
         room: activeRoom,
         joinPath: `/play/${activeRoom.code}`,
+        adminSessionToken: created.adminSessionToken,
       },
     });
 
     socket.emit(SOCKET_EVENTS.ROOM_STATE, activeRoom);
   });
 
-  socket.on(SOCKET_EVENTS.ROOM_JOIN, (payload: JoinRoomPayload, ack) => {
+  socket.on(SOCKET_EVENTS.ROOM_ADMIN_REJOIN, (payload: AdminRejoinPayload, ack) => {
     if (typeof ack !== 'function') {
-      failJoinRoom(socket.id, undefined, {
-        code: ROOM_ERROR_CODES.SERVER_ERROR,
-        message: 'No pudimos confirmar tu entrada a la partida.',
-      });
+      failRoomAck<never>(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar la reconexion del administrador.'),
+      );
       return;
     }
 
     if (socket.data.role || socket.data.roomCode) {
-      failJoinRoom(socket.id, ack, connectionAlreadyAssignedError());
+      failRoomAck(socket.id, ack, connectionAlreadyAssignedError());
+      return;
+    }
+
+    if (
+      !payload ||
+      typeof payload.roomCode !== 'string' ||
+      typeof payload.adminSessionToken !== 'string'
+    ) {
+      failRoomAck(
+        socket.id,
+        ack,
+        invalidPayloadError('No pudimos validar la sesion del administrador.'),
+      );
+      return;
+    }
+
+    const result = rejoinAdmin(payload.roomCode, payload.adminSessionToken, socket.id);
+
+    if (!result.ok) {
+      failRoomAck(socket.id, ack, result.error);
+      return;
+    }
+
+    socket.data.role = 'admin';
+    socket.data.roomCode = result.room.code;
+    socket.data.sessionToken = result.adminSessionToken;
+    socket.join(roomChannel(result.room.code));
+
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+        adminSessionToken: result.adminSessionToken,
+      },
+    });
+    socket.emit(SOCKET_EVENTS.ROOM_STATE, result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.ROOM_JOIN, (payload: JoinRoomPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failRoomAck<never>(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar tu entrada a la partida.'),
+      );
+      return;
+    }
+
+    if (socket.data.role || socket.data.roomCode) {
+      failRoomAck(socket.id, ack, connectionAlreadyAssignedError());
       return;
     }
 
     if (!payload || typeof payload.roomCode !== 'string' || typeof payload.name !== 'string') {
-      failJoinRoom(socket.id, ack, {
+      failRoomAck(socket.id, ack, {
         code: ROOM_ERROR_CODES.INVALID_NAME,
         message: 'Revisa tu nombre e intentalo de nuevo.',
       });
       return;
     }
 
-    const result = addPlayer(payload.roomCode, payload.name);
+    const result = addPlayer(payload.roomCode, payload.name, socket.id);
 
     if (!result.ok) {
-      failJoinRoom(socket.id, ack, result.error);
+      failRoomAck(socket.id, ack, result.error);
       return;
     }
 
     socket.data.role = 'player';
     socket.data.roomCode = result.room.code;
     socket.data.playerId = result.player.id;
+    socket.data.sessionToken = result.sessionToken;
     socket.join(roomChannel(result.room.code));
 
     ack({
@@ -236,14 +486,179 @@ io.on('connection', (socket) => {
       data: {
         player: result.player,
         room: result.room,
+        playerState: result.playerState,
+        sessionToken: result.sessionToken,
       },
     });
 
+    socket.emit(SOCKET_EVENTS.PLAYER_STATE, result.playerState);
     socket.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.PLAYER_JOINED, {
       roomCode: result.room.code,
       player: result.player,
     });
-    io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.ROOM_STATE, result.room);
+    emitRoomState(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.ROOM_REJOIN, (payload: RejoinRoomPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failRoomAck<never>(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar tu reconexion a la partida.'),
+      );
+      return;
+    }
+
+    if (socket.data.role || socket.data.roomCode) {
+      failRoomAck(socket.id, ack, connectionAlreadyAssignedError());
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string' || typeof payload.sessionToken !== 'string') {
+      failRoomAck(socket.id, ack, invalidPayloadError('No pudimos validar tu sesion.'));
+      return;
+    }
+
+    const result = rejoinPlayer(payload.roomCode, payload.sessionToken, socket.id);
+
+    if (!result.ok) {
+      failRoomAck(socket.id, ack, result.error);
+      return;
+    }
+
+    socket.data.role = 'player';
+    socket.data.roomCode = result.room.code;
+    socket.data.playerId = result.player.id;
+    socket.data.sessionToken = result.sessionToken;
+    socket.join(roomChannel(result.room.code));
+
+    ack({
+      ok: true,
+      data: {
+        player: result.player,
+        room: result.room,
+        playerState: result.playerState,
+        sessionToken: result.sessionToken,
+      },
+    });
+
+    socket.emit(SOCKET_EVENTS.PLAYER_STATE, result.playerState);
+    emitRoomState(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.GAME_START, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar el inicio de la partida.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const result = startGame(payload.roomCode, socket.id);
+
+    if (!result.ok) {
+      failGameAck(socket.id, ack, result.error);
+      return;
+    }
+
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+      },
+    });
+    emitRoomState(result.room);
+    scheduleCountdown(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.QUESTION_NEXT, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar la siguiente pregunta.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const result = requestNextQuestion(payload.roomCode, socket.id);
+
+    if (!result.ok) {
+      failGameAck(socket.id, ack, result.error);
+      return;
+    }
+
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+      },
+    });
+    emitRoomState(result.room);
+    scheduleCountdown(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.ANSWER_SUBMIT, (payload: AnswerSubmitPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failAnswerAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar tu respuesta.'),
+      );
+      return;
+    }
+
+    const { playerId, role, roomCode } = socket.data;
+
+    if (role !== 'player' || !roomCode || !playerId) {
+      failAnswerAck(
+        socket.id,
+        ack,
+        makeRoomError(ROOM_ERROR_CODES.REJOIN_FAILED, 'No pudimos validar tu conexion.'),
+      );
+      return;
+    }
+
+    if (
+      !payload ||
+      typeof payload.roomCode !== 'string' ||
+      typeof payload.questionId !== 'string' ||
+      typeof payload.selectedOptionId !== 'string'
+    ) {
+      failAnswerAck(socket.id, ack, invalidPayloadError('No pudimos validar tu respuesta.'));
+      return;
+    }
+
+    const result = submitAnswer(roomCode, playerId, socket.id, payload);
+
+    if (!result.ok) {
+      failAnswerAck(socket.id, ack, result.error);
+      return;
+    }
+
+    ack({
+      ok: true,
+      data: result.accepted,
+    });
+    socket.emit(SOCKET_EVENTS.ANSWER_ACCEPTED, result.accepted);
+    emitPlayerQuestionState(result.room.code, playerId);
+    emitRoomState(result.room);
+
+    if (result.shouldEndQuestion) {
+      finishQuestionAndBroadcast(result.room.code);
+    }
   });
 
   socket.on('disconnect', () => {
@@ -259,24 +674,27 @@ io.on('connection', (socket) => {
       const room = removeAdminSocket(roomCode, socket.id);
 
       if (room) {
-        socket.to(roomChannel(room.code)).emit(SOCKET_EVENTS.ROOM_STATE, room);
+        emitRoomState(room);
       }
 
       return;
     }
 
     if (role === 'player' && playerId) {
-      const result = markPlayerDisconnected(roomCode, playerId);
+      const result = markPlayerDisconnected(roomCode, playerId, socket.id);
 
       if (!result) {
         return;
       }
 
-      socket.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.PLAYER_LEFT, {
-        roomCode: result.room.code,
-        playerId: result.playerId,
-      });
-      socket.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.ROOM_STATE, result.room);
+      if (result.disconnected) {
+        socket.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.PLAYER_LEFT, {
+          roomCode: result.room.code,
+          playerId: result.playerId,
+        });
+      }
+
+      emitRoomState(result.room);
     }
   });
 });

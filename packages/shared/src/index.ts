@@ -1,10 +1,30 @@
 export const GAME_STATUS = {
   LOBBY: 'LOBBY',
-  PLAYING: 'PLAYING',
+  COUNTDOWN: 'COUNTDOWN',
+  QUESTION_ACTIVE: 'QUESTION_ACTIVE',
+  QUESTION_RESULTS: 'QUESTION_RESULTS',
   FINISHED: 'FINISHED',
 } as const;
 
 export type GameStatus = (typeof GAME_STATUS)[keyof typeof GAME_STATUS];
+
+export const QUESTION_DIFFICULTY = {
+  EASY: 'easy',
+  MEDIUM: 'medium',
+  HARD: 'hard',
+} as const;
+
+export type QuestionDifficulty =
+  (typeof QUESTION_DIFFICULTY)[keyof typeof QUESTION_DIFFICULTY];
+
+export const PLAYER_RESULT_STATUS = {
+  CORRECT: 'CORRECT',
+  INCORRECT: 'INCORRECT',
+  TIMEOUT: 'TIMEOUT',
+} as const;
+
+export type PlayerResultStatus =
+  (typeof PLAYER_RESULT_STATUS)[keyof typeof PLAYER_RESULT_STATUS];
 
 export interface Player {
   id: string;
@@ -13,20 +33,122 @@ export interface Player {
   joinedAt: string;
 }
 
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
+export interface Question {
+  id: string;
+  text: string;
+  options: QuestionOption[];
+  correctOptionId: string;
+  category: string;
+  difficulty: QuestionDifficulty;
+  timeLimitSeconds: number;
+}
+
+export interface PublicQuestion {
+  id: string;
+  text: string;
+  options: QuestionOption[];
+  category: string;
+  difficulty: QuestionDifficulty;
+  timeLimitSeconds: number;
+  startedAt: string;
+  expiresAt: string;
+  questionNumber: number;
+  totalQuestions: number;
+}
+
+export interface CountdownState {
+  endsAt: string;
+  nextQuestionNumber: number;
+  totalQuestions: number;
+}
+
+export interface QuestionAnswerSummary {
+  answeredCount: number;
+  activePlayerCount: number;
+}
+
+export interface QuestionOptionResult {
+  optionId: string;
+  count: number;
+}
+
+export interface QuestionResults {
+  questionId: string;
+  questionNumber: number;
+  totalQuestions: number;
+  correctOptionId: string;
+  correctOptionText: string;
+  correctCount: number;
+  incorrectCount: number;
+  unansweredCount: number;
+  accuracyPercent: number;
+  distribution: QuestionOptionResult[];
+}
+
+export interface PlayerAnswer {
+  playerId: string;
+  questionId: string;
+  selectedOptionId: string;
+  correct: boolean;
+  answeredAt: string;
+  responseTimeMs: number;
+}
+
+export interface PlayerQuestionResult {
+  questionId: string;
+  status: PlayerResultStatus;
+  correctOptionId: string;
+  correctOptionText: string;
+  correct: boolean;
+  selectedOptionId?: string;
+  answeredAt?: string;
+  responseTimeMs?: number;
+}
+
+export interface PlayerQuestionState {
+  questionId?: string;
+  hasSubmitted: boolean;
+  selectedOptionId?: string;
+  answeredAt?: string;
+  responseTimeMs?: number;
+  result?: PlayerQuestionResult;
+}
+
 export interface GameRoom {
   code: string;
   status: GameStatus;
   players: Player[];
   createdAt: string;
+  currentQuestion?: PublicQuestion;
+  countdown?: CountdownState;
+  answerSummary?: QuestionAnswerSummary;
+  questionResults?: QuestionResults;
 }
 
 export const SOCKET_EVENTS = {
   ROOM_CREATE: 'room:create',
   ROOM_JOIN: 'room:join',
+  ROOM_REJOIN: 'room:rejoin',
+  ROOM_ADMIN_REJOIN: 'room:admin-rejoin',
   ROOM_STATE: 'room:state',
   PLAYER_JOINED: 'player:joined',
   PLAYER_LEFT: 'player:left',
+  PLAYER_STATE: 'player:state',
   ROOM_ERROR: 'room:error',
+  GAME_START: 'game:start',
+  GAME_ERROR: 'game:error',
+  QUESTION_STARTED: 'question:started',
+  QUESTION_ENDED: 'question:ended',
+  QUESTION_RESULTS: 'question:results',
+  QUESTION_NEXT: 'question:next',
+  ANSWER_SUBMIT: 'answer:submit',
+  ANSWER_ACCEPTED: 'answer:accepted',
+  ANSWER_REJECTED: 'answer:rejected',
 } as const;
 
 export const ROOM_ERROR_CODES = {
@@ -35,6 +157,17 @@ export const ROOM_ERROR_CODES = {
   DUPLICATE_NAME: 'DUPLICATE_NAME',
   ROOM_NOT_JOINABLE: 'ROOM_NOT_JOINABLE',
   CONNECTION_ALREADY_ASSIGNED: 'CONNECTION_ALREADY_ASSIGNED',
+  NOT_ADMIN: 'NOT_ADMIN',
+  NO_PLAYERS: 'NO_PLAYERS',
+  GAME_ALREADY_STARTED: 'GAME_ALREADY_STARTED',
+  QUESTION_NOT_ACTIVE: 'QUESTION_NOT_ACTIVE',
+  QUESTION_NOT_FOUND: 'QUESTION_NOT_FOUND',
+  QUESTION_EXPIRED: 'QUESTION_EXPIRED',
+  QUESTION_RESULTS_NOT_READY: 'QUESTION_RESULTS_NOT_READY',
+  ANSWER_ALREADY_SUBMITTED: 'ANSWER_ALREADY_SUBMITTED',
+  INVALID_OPTION: 'INVALID_OPTION',
+  REJOIN_FAILED: 'REJOIN_FAILED',
+  NO_MORE_QUESTIONS: 'NO_MORE_QUESTIONS',
   SERVER_ERROR: 'SERVER_ERROR',
 } as const;
 
@@ -58,6 +191,7 @@ export type SocketAck<TData> =
 export interface CreateRoomSuccess {
   room: GameRoom;
   joinPath: string;
+  adminSessionToken: string;
 }
 
 export type CreateRoomResponse = SocketAck<CreateRoomSuccess>;
@@ -70,9 +204,63 @@ export interface JoinRoomPayload {
 export interface JoinRoomSuccess {
   player: Player;
   room: GameRoom;
+  playerState: PlayerQuestionState;
+  sessionToken: string;
 }
 
 export type JoinRoomResponse = SocketAck<JoinRoomSuccess>;
+
+export interface RejoinRoomPayload {
+  roomCode: string;
+  sessionToken: string;
+}
+
+export interface RejoinRoomSuccess {
+  player: Player;
+  room: GameRoom;
+  playerState: PlayerQuestionState;
+  sessionToken: string;
+}
+
+export type RejoinRoomResponse = SocketAck<RejoinRoomSuccess>;
+
+export interface AdminRejoinPayload {
+  roomCode: string;
+  adminSessionToken: string;
+}
+
+export interface AdminRejoinSuccess {
+  room: GameRoom;
+  adminSessionToken: string;
+}
+
+export type AdminRejoinResponse = SocketAck<AdminRejoinSuccess>;
+
+export interface GameControlPayload {
+  roomCode: string;
+}
+
+export interface GameControlSuccess {
+  room: GameRoom;
+}
+
+export type GameControlResponse = SocketAck<GameControlSuccess>;
+
+export interface AnswerSubmitPayload {
+  roomCode: string;
+  questionId: string;
+  selectedOptionId: string;
+}
+
+export interface AnswerAcceptedSuccess {
+  questionId: string;
+  selectedOptionId: string;
+  answeredAt: string;
+  responseTimeMs: number;
+  playerState: PlayerQuestionState;
+}
+
+export type AnswerSubmitResponse = SocketAck<AnswerAcceptedSuccess>;
 
 export interface PlayerEventPayload {
   roomCode: string;
@@ -84,11 +272,35 @@ export interface PlayerLeftPayload {
   playerId: string;
 }
 
+export interface QuestionStartedPayload {
+  roomCode: string;
+  question: PublicQuestion;
+  answerSummary: QuestionAnswerSummary;
+}
+
+export interface QuestionEndedPayload {
+  roomCode: string;
+  questionId: string;
+}
+
+export interface QuestionResultsPayload {
+  roomCode: string;
+  results: QuestionResults;
+  playerResult?: PlayerQuestionResult;
+}
+
 export interface ServerToClientEvents {
   [SOCKET_EVENTS.ROOM_STATE]: (room: GameRoom) => void;
   [SOCKET_EVENTS.PLAYER_JOINED]: (payload: PlayerEventPayload) => void;
   [SOCKET_EVENTS.PLAYER_LEFT]: (payload: PlayerLeftPayload) => void;
+  [SOCKET_EVENTS.PLAYER_STATE]: (state: PlayerQuestionState) => void;
   [SOCKET_EVENTS.ROOM_ERROR]: (error: RoomError) => void;
+  [SOCKET_EVENTS.GAME_ERROR]: (error: RoomError) => void;
+  [SOCKET_EVENTS.QUESTION_STARTED]: (payload: QuestionStartedPayload) => void;
+  [SOCKET_EVENTS.QUESTION_ENDED]: (payload: QuestionEndedPayload) => void;
+  [SOCKET_EVENTS.QUESTION_RESULTS]: (payload: QuestionResultsPayload) => void;
+  [SOCKET_EVENTS.ANSWER_ACCEPTED]: (payload: AnswerAcceptedSuccess) => void;
+  [SOCKET_EVENTS.ANSWER_REJECTED]: (error: RoomError) => void;
 }
 
 export interface ClientToServerEvents {
@@ -96,6 +308,26 @@ export interface ClientToServerEvents {
   [SOCKET_EVENTS.ROOM_JOIN]: (
     payload: JoinRoomPayload,
     ack: (response: JoinRoomResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.ROOM_REJOIN]: (
+    payload: RejoinRoomPayload,
+    ack: (response: RejoinRoomResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.ROOM_ADMIN_REJOIN]: (
+    payload: AdminRejoinPayload,
+    ack: (response: AdminRejoinResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.GAME_START]: (
+    payload: GameControlPayload,
+    ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.QUESTION_NEXT]: (
+    payload: GameControlPayload,
+    ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.ANSWER_SUBMIT]: (
+    payload: AnswerSubmitPayload,
+    ack: (response: AnswerSubmitResponse) => void,
   ) => void;
 }
 
@@ -109,4 +341,5 @@ export interface SocketData {
   role?: SocketRole;
   roomCode?: string;
   playerId?: string;
+  sessionToken?: string;
 }

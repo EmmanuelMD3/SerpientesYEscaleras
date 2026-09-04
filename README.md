@@ -2,7 +2,7 @@
 
 Aplicacion web multijugador en tiempo real para una actividad universitaria de Software Embebido.
 
-La fase actual implementa solo la arquitectura base y el lobby: un administrador crea una sala, comparte el codigo o QR, y los jugadores entran desde `/play/:roomCode` escribiendo su nombre.
+La fase actual implementa arquitectura base, lobby y preguntas simultaneas tipo Kahoot: un administrador crea una sala, comparte el codigo o QR, inicia la partida y todos los jugadores responden la misma pregunta desde `/play/:roomCode`.
 
 ## Arquitectura
 
@@ -10,7 +10,7 @@ La fase actual implementa solo la arquitectura base y el lobby: un administrador
 - `apps/server`: backend Node.js, TypeScript, Express y Socket.IO.
 - `packages/shared`: modelos y contratos compartidos entre frontend y backend.
 
-El servidor es la autoridad de la partida. El cliente solo solicita acciones como crear sala o entrar con un nombre; nunca envia ni modifica listas completas de jugadores.
+El servidor es la autoridad de la partida. El cliente solo solicita acciones como crear sala, entrar con un nombre, iniciar preguntas o enviar una respuesta; nunca envia ni modifica listas completas de jugadores, preguntas completas, resultados ni estado global.
 
 ## Requisitos
 
@@ -84,7 +84,7 @@ Get-Process -Id <PID>
 
 No hay scripts que cierren procesos automaticamente.
 
-## Como probar el lobby
+## Como probar lobby y preguntas
 
 1. Ejecuta `npm run dev`.
 2. Abre `http://localhost:5173/admin`.
@@ -96,7 +96,12 @@ No hay scripts que cierren procesos automaticamente.
 8. Abre otra pestana o navegador con el mismo enlace.
 9. Entra como `Michelle`.
 10. Intenta entrar otra vez como `Emmanuel`; el servidor respondera que el nombre ya existe.
-11. Cierra la pestana de `Michelle`; el panel del administrador marcara su desconexion.
+11. Pulsa `INICIAR PARTIDA` desde admin.
+12. Confirma el countdown `3, 2, 1` y que ambos jugadores ven la misma pregunta.
+13. Responde una vez desde cada jugador; el admin debe actualizar el contador de respuestas.
+14. Al responder todos, o al acabarse el tiempo, el servidor cierra la pregunta y muestra resultados.
+15. Pulsa `SIGUIENTE PREGUNTA` desde admin para avanzar.
+16. Cierra la pestana de `Michelle`; el panel del administrador marcara su desconexion.
 
 ## Produccion local
 
@@ -124,16 +129,28 @@ Los nombres y tipos viven en `packages/shared/src/index.ts`.
 
 - `room:create`: el administrador solicita una sala nueva.
 - `room:join`: un jugador solicita entrar a una sala con su nombre.
+- `room:rejoin`: un jugador recupera su sesion con token local.
+- `room:admin-rejoin`: el administrador recupera su sala con token local.
 - `room:state`: el servidor publica el estado actual de la sala.
 - `player:joined`: el servidor notifica que entro un jugador.
 - `player:left`: el servidor notifica que un jugador se desconecto.
+- `player:state`: el servidor envia el estado individual de pregunta a un jugador.
 - `room:error`: el servidor envia errores amigables y tipados.
+- `game:start`: el administrador inicia la ronda de preguntas.
+- `question:started`: el servidor publica una pregunta sin `correctOptionId`.
+- `answer:submit`: un jugador envia una respuesta.
+- `answer:accepted`: el servidor confirma una respuesta aceptada.
+- `answer:rejected`: el servidor rechaza una respuesta duplicada, tardia o invalida.
+- `question:results`: el servidor publica resultados solo despues del cierre.
+- `question:next`: el administrador avanza a la siguiente pregunta.
 
 ## Modelos principales
 
 - `Player`: `id`, `name`, `connected`, `joinedAt`.
-- `GameRoom`: `code`, `status`, `players`, `createdAt`.
-- `GameStatus`: `LOBBY`, `PLAYING`, `FINISHED`.
+- `GameRoom`: `code`, `status`, `players`, `createdAt`, pregunta publica, countdown, resumen de respuestas y resultados cuando aplica.
+- `PublicQuestion`: pregunta visible para clientes, sin `correctOptionId`.
+- `Question`: pregunta interna del servidor, con `correctOptionId`.
+- `GameStatus`: `LOBBY`, `COUNTDOWN`, `QUESTION_ACTIVE`, `QUESTION_RESULTS`, `FINISHED`.
 
 ## Comandos
 
@@ -176,4 +193,6 @@ No se incluye `railway.toml` ni `railway.json`: Railway marco Config as Code com
 
 ## Alcance de esta fase
 
-No incluye preguntas, temporizadores, dados, tablero, serpientes, escaleras, ranking, ganador ni animaciones complejas. Esos elementos quedan listos para crecer sobre la base del lobby.
+Incluye preguntas simultaneas, countdown, temporizador validado por servidor, una respuesta por jugador, resultados individuales y reconexion conservadora.
+
+No incluye dado, tablero, serpientes, escaleras, movimiento, ranking por posicion, ganador ni GSAP. Esos elementos quedan listos para crecer sobre la base de preguntas.

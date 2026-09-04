@@ -1,17 +1,35 @@
 <script setup lang="ts">
-import { ArrowRight, CheckCircle2, Gamepad2 } from '@lucide/vue';
+import { ArrowRight, Gamepad2 } from '@lucide/vue';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute } from 'vue-router';
 
 import ConnectionBadge from '../components/ConnectionBadge.vue';
+import PlayerQuestionView from '../components/PlayerQuestionView.vue';
 import {
   ensureSocketConnected,
   getSocket,
   joinRoom,
+  rejoinRoom,
   socketConnectionStatus,
+  submitAnswer,
 } from '../services/socket';
 
-import { SOCKET_EVENTS, type GameRoom, type Player, type RoomError } from '@embedded-snakes-live/shared';
+import {
+  GAME_STATUS,
+  SOCKET_EVENTS,
+  type GameRoom,
+  type Player,
+  type PlayerQuestionState,
+  type QuestionResultsPayload,
+  type QuestionStartedPayload,
+  type RoomError,
+} from '@embedded-snakes-live/shared';
+
+interface PlayerSession {
+  roomCode: string;
+  name: string;
+  sessionToken: string;
+}
 
 const route = useRoute();
 const socket = getSocket();
@@ -19,13 +37,100 @@ const socket = getSocket();
 const name = ref('');
 const errorMessage = ref('');
 const isJoining = ref(false);
+const isRejoining = ref(false);
+const isSubmittingAnswer = ref(false);
 const player = ref<Player | null>(null);
 const room = ref<GameRoom | null>(null);
+const playerState = ref<PlayerQuestionState>({ hasSubmitted: false });
 const socketStatus = socketConnectionStatus;
 
 const roomCode = computed(() => String(route.params.roomCode ?? '').trim().toUpperCase());
 const trimmedName = computed(() => name.value.trim());
-const canSubmit = computed(() => trimmedName.value.length > 0 && trimmedName.value.length <= 25);
+const canSubmit = computed(
+  () => trimmedName.value.length > 0 && trimmedName.value.length <= 25 && !isRejoining.value,
+);
+const playerSessionKey = computed(() => `embedded-snakes-live:player-session:${roomCode.value}`);
+
+function parsePlayerSession(value: string | null): PlayerSession | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(value);
+
+    if (!parsed || typeof parsed !== 'object') {
+      return null;
+    }
+
+    const record = parsed as Record<string, unknown>;
+
+    if (
+      typeof record.roomCode !== 'string' ||
+      typeof record.name !== 'string' ||
+      typeof record.sessionToken !== 'string'
+    ) {
+      return null;
+    }
+
+    return {
+      roomCode: record.roomCode,
+      name: record.name,
+      sessionToken: record.sessionToken,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function savePlayerSession(session: PlayerSession): void {
+  window.localStorage.setItem(playerSessionKey.value, JSON.stringify(session));
+}
+
+function clearPlayerSession(): void {
+  window.localStorage.removeItem(playerSessionKey.value);
+}
+
+async function attemptPlayerRejoin(): Promise<void> {
+  if (player.value || isRejoining.value) {
+    return;
+  }
+
+  const session = parsePlayerSession(window.localStorage.getItem(playerSessionKey.value));
+
+  if (!session || session.roomCode !== roomCode.value) {
+    return;
+  }
+
+  isRejoining.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await rejoinRoom(socket, {
+      roomCode: session.roomCode,
+      sessionToken: session.sessionToken,
+    });
+
+    if (!response.ok) {
+      clearPlayerSession();
+      return;
+    }
+
+    player.value = response.data.player;
+    room.value = response.data.room;
+    playerState.value = response.data.playerState;
+    name.value = response.data.player.name;
+    savePlayerSession({
+      roomCode: response.data.room.code,
+      name: response.data.player.name,
+      sessionToken: response.data.sessionToken,
+    });
+  } catch {
+    return;
+  } finally {
+    isRejoining.value = false;
+  }
+}
 
 async function handleJoinRoom(): Promise<void> {
   errorMessage.value = '';
@@ -56,7 +161,13 @@ async function handleJoinRoom(): Promise<void> {
 
     player.value = response.data.player;
     room.value = response.data.room;
+    playerState.value = response.data.playerState;
     name.value = response.data.player.name;
+    savePlayerSession({
+      roomCode: response.data.room.code,
+      name: response.data.player.name,
+      sessionToken: response.data.sessionToken,
+    });
   } catch (error) {
     errorMessage.value =
       error instanceof Error ? error.message : 'No pudimos conectar con el servidor.';
@@ -65,24 +176,142 @@ async function handleJoinRoom(): Promise<void> {
   }
 }
 
-function handleRoomState(nextRoom: GameRoom): void {
-  if (nextRoom.code === roomCode.value) {
-    room.value = nextRoom;
+async function handleSubmitAnswer(optionId: string): Promise<void> {
+  if (!room.value?.currentQuestion || playerState.value.hasSubmitted) {
+    return;
   }
+
+  errorMessage.value = '';
+  isSubmittingAnswer.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await submitAnswer(socket, {
+      roomCode: room.value.code,
+      questionId: room.value.currentQuestion.id,
+      selectedOptionId: optionId,
+    });
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    playerState.value = response.data.playerState;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'No pudimos registrar tu respuesta.';
+  } finally {
+    isSubmittingAnswer.value = false;
+  }
+}
+
+function handleRoomState(nextRoom: GameRoom): void {
+  if (nextRoom.code !== roomCode.value) {
+    return;
+  }
+
+  room.value = nextRoom;
+
+  if (nextRoom.status === GAME_STATUS.COUNTDOWN) {
+    playerState.value = { hasSubmitted: false };
+  }
+
+  if (
+    nextRoom.status === GAME_STATUS.QUESTION_ACTIVE &&
+    nextRoom.currentQuestion &&
+    playerState.value.questionId !== nextRoom.currentQuestion.id
+  ) {
+    playerState.value = {
+      questionId: nextRoom.currentQuestion.id,
+      hasSubmitted: false,
+    };
+  }
+}
+
+function handleQuestionStarted(payload: QuestionStartedPayload): void {
+  if (payload.roomCode !== roomCode.value || !room.value) {
+    return;
+  }
+
+  room.value = {
+    ...room.value,
+    status: GAME_STATUS.QUESTION_ACTIVE,
+    currentQuestion: payload.question,
+    answerSummary: payload.answerSummary,
+  };
+  playerState.value = {
+    questionId: payload.question.id,
+    hasSubmitted: false,
+  };
+}
+
+function handleQuestionResults(payload: QuestionResultsPayload): void {
+  if (payload.roomCode !== roomCode.value || !room.value) {
+    return;
+  }
+
+  room.value = {
+    ...room.value,
+    status: GAME_STATUS.QUESTION_RESULTS,
+    questionResults: payload.results,
+  };
+
+  if (payload.playerResult) {
+    const nextPlayerState: PlayerQuestionState = {
+      ...playerState.value,
+      questionId: payload.playerResult.questionId,
+      hasSubmitted: Boolean(payload.playerResult.selectedOptionId),
+      result: payload.playerResult,
+    };
+
+    if (payload.playerResult.selectedOptionId) {
+      nextPlayerState.selectedOptionId = payload.playerResult.selectedOptionId;
+    }
+
+    if (payload.playerResult.answeredAt) {
+      nextPlayerState.answeredAt = payload.playerResult.answeredAt;
+    }
+
+    if (payload.playerResult.responseTimeMs !== undefined) {
+      nextPlayerState.responseTimeMs = payload.playerResult.responseTimeMs;
+    }
+
+    playerState.value = nextPlayerState;
+  }
+}
+
+function handlePlayerState(nextState: PlayerQuestionState): void {
+  playerState.value = nextState;
 }
 
 function handleRoomError(error: RoomError): void {
   errorMessage.value = error.message;
 }
 
+function handleSocketReconnect(): void {
+  void attemptPlayerRejoin();
+}
+
 onMounted(() => {
   socket.on(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
   socket.on(SOCKET_EVENTS.ROOM_ERROR, handleRoomError);
+  socket.on(SOCKET_EVENTS.PLAYER_STATE, handlePlayerState);
+  socket.on(SOCKET_EVENTS.QUESTION_STARTED, handleQuestionStarted);
+  socket.on(SOCKET_EVENTS.QUESTION_RESULTS, handleQuestionResults);
+  socket.on(SOCKET_EVENTS.ANSWER_REJECTED, handleRoomError);
+  socket.on('connect', handleSocketReconnect);
+  void attemptPlayerRejoin();
 });
 
 onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.ROOM_STATE, handleRoomState);
   socket.off(SOCKET_EVENTS.ROOM_ERROR, handleRoomError);
+  socket.off(SOCKET_EVENTS.PLAYER_STATE, handlePlayerState);
+  socket.off(SOCKET_EVENTS.QUESTION_STARTED, handleQuestionStarted);
+  socket.off(SOCKET_EVENTS.QUESTION_RESULTS, handleQuestionResults);
+  socket.off(SOCKET_EVENTS.ANSWER_REJECTED, handleRoomError);
+  socket.off('connect', handleSocketReconnect);
 });
 </script>
 
@@ -142,26 +371,25 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="isJoining || !canSubmit"
             >
-              {{ isJoining ? 'Entrando...' : 'Entrar a la partida' }}
+              {{ isJoining ? 'Entrando...' : isRejoining ? 'Recuperando...' : 'Entrar a la partida' }}
               <ArrowRight class="h-5 w-5" aria-hidden="true" />
             </button>
           </form>
         </template>
 
         <template v-else>
-          <div class="rounded-lg bg-emerald-300 p-5 text-zinc-950">
-            <CheckCircle2 class="h-12 w-12" aria-hidden="true" />
-            <h1 class="mt-4 text-4xl font-black">Hola, {{ player.name }}</h1>
+          <div class="mb-5 rounded-lg bg-emerald-300 p-4 text-zinc-950">
+            <p class="text-sm font-black uppercase tracking-wide">Jugador</p>
+            <h1 class="mt-1 text-3xl font-black">Hola, {{ player.name }}</h1>
           </div>
 
-          <div class="mt-6 space-y-4">
-            <p class="text-2xl font-black">Ya estas dentro de la partida.</p>
-            <p class="text-lg font-semibold text-white/70">Esperando a que el administrador inicie...</p>
-            <div class="rounded-lg border border-white/10 bg-white/10 px-4 py-4">
-              <p class="text-xs font-black uppercase tracking-wide text-white/50">Sala</p>
-              <p class="mt-1 font-mono text-3xl font-black tracking-[0.16em]">{{ room?.code ?? roomCode }}</p>
-            </div>
-          </div>
+          <PlayerQuestionView
+            v-if="room"
+            :room="room"
+            :player-state="playerState"
+            :is-submitting="isSubmittingAnswer"
+            @answer="handleSubmitAnswer"
+          />
 
           <p
             v-if="errorMessage"

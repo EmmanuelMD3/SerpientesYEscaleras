@@ -1,10 +1,18 @@
 import {
   ROOM_ERROR_CODES,
   SOCKET_EVENTS,
+  type AdminRejoinPayload,
+  type AdminRejoinResponse,
+  type AnswerSubmitPayload,
+  type AnswerSubmitResponse,
   type ClientToServerEvents,
   type CreateRoomResponse,
+  type GameControlPayload,
+  type GameControlResponse,
   type JoinRoomPayload,
   type JoinRoomResponse,
+  type RejoinRoomPayload,
+  type RejoinRoomResponse,
   type ServerToClientEvents,
 } from '@embedded-snakes-live/shared';
 import { io, type Socket } from 'socket.io-client';
@@ -133,6 +141,116 @@ export function joinRoom(
     }, 4_000);
 
     socketInstance.emit(SOCKET_EVENTS.ROOM_JOIN, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function rejoinRoom(
+  socketInstance: AppSocket,
+  payload: RejoinRoomPayload,
+): Promise<RejoinRoomResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.REJOIN_FAILED,
+          message: 'No pudimos recuperar tu entrada a la partida.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.ROOM_REJOIN, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function rejoinAdminRoom(
+  socketInstance: AppSocket,
+  payload: AdminRejoinPayload,
+): Promise<AdminRejoinResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.REJOIN_FAILED,
+          message: 'No pudimos recuperar la sala del administrador.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.ROOM_ADMIN_REJOIN, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function startGame(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<GameControlResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en iniciar la partida.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.GAME_START, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function nextQuestion(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<GameControlResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en preparar la siguiente pregunta.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.QUESTION_NEXT, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function submitAnswer(
+  socketInstance: AppSocket,
+  payload: AnswerSubmitPayload,
+): Promise<AnswerSubmitResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en registrar tu respuesta.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.ANSWER_SUBMIT, payload, (response) => {
       window.clearTimeout(timeout);
       resolve(response);
     });

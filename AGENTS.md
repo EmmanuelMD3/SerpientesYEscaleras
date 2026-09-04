@@ -66,10 +66,15 @@ Para probar manualmente:
 3. Abrir `/play/CODIGO` en otra pestana.
 4. Entrar con nombres distintos.
 5. Confirmar que el panel admin actualiza jugadores y desconexiones sin refrescar.
+6. Iniciar partida desde admin.
+7. Confirmar countdown, pregunta simultanea, una sola respuesta por jugador y resultados.
+8. Avanzar con `SIGUIENTE PREGUNTA`.
 
 ## Alcance actual
 
-Fase 1 solo cubre arquitectura y lobby. No avanzar a preguntas, temporizadores, dados, tablero, serpientes, escaleras, ranking, ganador ni animaciones complejas salvo que el usuario lo pida.
+Fase 2 cubre preguntas simultaneas tipo Kahoot, countdown, temporizador del servidor, resultados por pregunta y reconexion conservadora.
+
+No avanzar todavia a dado, tablero, serpientes, escaleras, movimiento, ranking por posicion, ganador ni GSAP salvo que el usuario lo pida.
 
 ## Railway
 
