@@ -2,7 +2,7 @@
 
 Aplicacion web multijugador en tiempo real para una actividad universitaria de Software Embebido.
 
-La fase actual implementa arquitectura base, lobby, preguntas simultaneas tipo Kahoot y dado individual por ronda: un administrador crea una sala, comparte el codigo o QR, inicia la partida, todos los jugadores responden la misma pregunta desde `/play/:roomCode` y quienes aciertan pueden lanzar un dado generado por el servidor.
+La fase actual implementa arquitectura base, lobby, preguntas simultaneas tipo Kahoot, dado individual por ronda y tablero numerico de 40 casillas. Quienes aciertan lanzan un dado generado por el servidor y su ficha avanza en el tablero del administrador.
 
 ## Arquitectura
 
@@ -10,7 +10,7 @@ La fase actual implementa arquitectura base, lobby, preguntas simultaneas tipo K
 - `apps/server`: backend Node.js, TypeScript, Express y Socket.IO.
 - `packages/shared`: modelos y contratos compartidos entre frontend y backend.
 
-El servidor es la autoridad de la partida. El cliente solo solicita acciones como crear sala, entrar con un nombre, iniciar preguntas, enviar una respuesta o pedir un lanzamiento de dado; nunca envia ni modifica listas completas de jugadores, preguntas completas, resultados, valores de dado ni estado global.
+El servidor es la autoridad de la partida. El cliente solo solicita acciones como crear sala, entrar con un nombre, iniciar preguntas, enviar una respuesta o pedir un lanzamiento de dado; nunca envia ni modifica listas completas de jugadores, preguntas completas, resultados, valores de dado, posiciones ni estado global.
 
 ## Requisitos
 
@@ -103,8 +103,11 @@ No hay scripts que cierren procesos automaticamente.
 15. Pulsa `HABILITAR DADOS` desde admin.
 16. Los jugadores correctos veran `LANZAR DADO`; incorrectos y timeout no tendran boton funcional.
 17. Lanza desde cada jugador elegible y verifica el progreso en admin.
-18. Cuando todos los elegibles hayan lanzado, pulsa `SIGUIENTE PREGUNTA`.
-19. Cierra la pestana de `Michelle`; el panel del administrador marcara su desconexion.
+18. Verifica que cada ficha avanza casilla por casilla y que el celular muestra la nueva posicion.
+19. Confirma que un jugador incorrecto permanece en la misma posicion.
+20. Cuando todos los elegibles hayan lanzado, pulsa `SIGUIENTE PREGUNTA` y confirma que las posiciones no se reinician.
+21. Recarga admin y un jugador; ambos deben recuperar las posiciones enviadas por el servidor.
+22. Cierra la pestana de `Michelle`; el panel del administrador marcara su desconexion.
 
 ## Produccion local
 
@@ -152,16 +155,21 @@ Los nombres y tipos viven en `packages/shared/src/index.ts`.
 - `dice:state`: el servidor publica progreso agregado de dados.
 - `dice:error`: el servidor rechaza lanzamientos invalidos.
 - `dice:phase:complete`: el servidor avisa que todos los elegibles lanzaron.
+- `player:move`: el servidor envia al admin el movimiento confirmado para su cola visual.
+- `player:moved`: el servidor publica el movimiento y estado final del tablero.
+- `board:state`: el servidor envia al admin el tablero completo para entrada o reconexion.
 
 ## Modelos principales
 
-- `Player`: `id`, `name`, `connected`, `joinedAt`.
-- `GameRoom`: `code`, `status`, `players`, `createdAt`, pregunta publica, countdown, resumen de respuestas y resultados cuando aplica.
+- `Player`: `id`, `name`, `connected`, `joinedAt`, `position`.
+- `GameRoom`: estado de sala, preguntas y dados; fuera del lobby incluye `boardState` completo.
+- `BoardState`: limite de 40 casillas y posicion publica de cada jugador.
+- `PlayerMove`: jugador, posicion anterior, posicion nueva, dado, pregunta y ronda.
 - `PublicQuestion`: pregunta visible para clientes, sin `correctOptionId`.
 - `Question`: pregunta interna del servidor, con `correctOptionId`.
 - `DiceState`: `eligible`, `rolled`, `value`.
 - `DiceSummary`: total elegible, total lanzado y si la fase esta completa.
-- `RoundResult`: historial interno por pregunta/jugador con resultado de pregunta y valor de dado.
+- `RoundResult`: historial interno con resultado, dado, `positionBefore` y `positionAfter`.
 - `GameStatus`: `LOBBY`, `COUNTDOWN`, `QUESTION_ACTIVE`, `QUESTION_RESULTS`, `DICE_ROLL`, `FINISHED`.
 
 ## Comandos
@@ -205,6 +213,6 @@ No se incluye `railway.toml` ni `railway.json`: Railway marco Config as Code com
 
 ## Alcance de esta fase
 
-Incluye preguntas simultaneas, countdown, temporizador validado por servidor, una respuesta por jugador, resultados individuales, reconexion conservadora y dado individual para jugadores correctos.
+Incluye preguntas simultaneas, countdown, temporizador validado por servidor, una respuesta por jugador, resultados individuales, reconexion conservadora, dado individual, posiciones persistentes en memoria y tablero admin de 40 casillas.
 
-No incluye tablero, serpientes, escaleras, movimiento, ranking por posicion, ganador ni GSAP. Esos elementos quedan listos para crecer sobre la base de preguntas y dados.
+No incluye serpientes, escaleras, casillas especiales, escudos, intercambios, bonificaciones, ganador, movimiento especial, base de datos ni GSAP.

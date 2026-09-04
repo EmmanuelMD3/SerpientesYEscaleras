@@ -70,13 +70,14 @@ Para probar manualmente:
 7. Confirmar countdown, pregunta simultanea, una sola respuesta por jugador y resultados.
 8. Habilitar dados desde admin.
 9. Confirmar que solo jugadores correctos pueden lanzar y que el valor lo genera el servidor.
-10. Avanzar con `SIGUIENTE PREGUNTA` cuando los dados esten completos.
+10. Confirmar que el servidor actualiza posiciones y que el tablero admin mueve las fichas.
+11. Avanzar con `SIGUIENTE PREGUNTA` cuando los dados esten completos y verificar que las posiciones persisten.
 
 ## Alcance actual
 
-Fase 3 cubre preguntas simultaneas tipo Kahoot, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora y dado individual para jugadores correctos.
+Fase 4A cubre preguntas simultaneas tipo Kahoot, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora, dado individual para jugadores correctos, posiciones persistentes y tablero numerico admin de 40 casillas.
 
-No avanzar todavia a tablero, serpientes, escaleras, movimiento, ranking por posicion, ganador ni GSAP salvo que el usuario lo pida.
+No avanzar todavia a serpientes, escaleras, casillas especiales, escudos, intercambios, bonificaciones, ganador, movimiento especial, base de datos ni GSAP salvo que el usuario lo pida.
 
 ## Railway
 

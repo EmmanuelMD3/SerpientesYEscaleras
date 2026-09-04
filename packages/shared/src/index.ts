@@ -15,8 +15,7 @@ export const QUESTION_DIFFICULTY = {
   HARD: 'hard',
 } as const;
 
-export type QuestionDifficulty =
-  (typeof QUESTION_DIFFICULTY)[keyof typeof QUESTION_DIFFICULTY];
+export type QuestionDifficulty = (typeof QUESTION_DIFFICULTY)[keyof typeof QUESTION_DIFFICULTY];
 
 export const PLAYER_RESULT_STATUS = {
   CORRECT: 'CORRECT',
@@ -24,16 +23,30 @@ export const PLAYER_RESULT_STATUS = {
   TIMEOUT: 'TIMEOUT',
 } as const;
 
-export type PlayerResultStatus =
-  (typeof PLAYER_RESULT_STATUS)[keyof typeof PLAYER_RESULT_STATUS];
+export type PlayerResultStatus = (typeof PLAYER_RESULT_STATUS)[keyof typeof PLAYER_RESULT_STATUS];
 
 export type DiceValue = 1 | 2 | 3 | 4 | 5 | 6;
+
+export const BOARD_MAX_POSITION = 40;
 
 export interface Player {
   id: string;
   name: string;
   connected: boolean;
   joinedAt: string;
+  position: number;
+}
+
+export interface BoardPlayer {
+  playerId: string;
+  name: string;
+  connected: boolean;
+  position: number;
+}
+
+export interface BoardState {
+  maxPosition: number;
+  players: BoardPlayer[];
 }
 
 export interface QuestionOption {
@@ -132,6 +145,16 @@ export interface DiceSummary {
   complete: boolean;
 }
 
+export interface PlayerMove {
+  playerId: string;
+  playerName: string;
+  fromPosition: number;
+  toPosition: number;
+  diceValue: DiceValue;
+  questionId: string;
+  roundNumber: number;
+}
+
 export interface RoundResult {
   questionId: string;
   playerId: string;
@@ -139,6 +162,8 @@ export interface RoundResult {
   correct: boolean;
   responseTimeMs: number | null;
   diceValue: DiceValue | null;
+  positionBefore: number;
+  positionAfter: number;
 }
 
 export interface PlayerQuestionState {
@@ -149,6 +174,7 @@ export interface PlayerQuestionState {
   responseTimeMs?: number;
   result?: PlayerQuestionResult;
   dice?: DiceState;
+  move?: PlayerMove;
 }
 
 export interface GameRoom {
@@ -162,6 +188,7 @@ export interface GameRoom {
   questionResults?: QuestionResults;
   diceSummary?: DiceSummary;
   dicePlayers?: DicePlayerState[];
+  boardState?: BoardState;
 }
 
 export const SOCKET_EVENTS = {
@@ -189,6 +216,9 @@ export const SOCKET_EVENTS = {
   DICE_STATE: 'dice:state',
   DICE_ERROR: 'dice:error',
   DICE_PHASE_COMPLETE: 'dice:phase:complete',
+  BOARD_STATE: 'board:state',
+  PLAYER_MOVE: 'player:move',
+  PLAYER_MOVED: 'player:moved',
 } as const;
 
 export const ROOM_ERROR_CODES = {
@@ -315,6 +345,7 @@ export interface DiceRollSuccess {
   value: DiceValue;
   diceState: DiceState;
   playerState: PlayerQuestionState;
+  move: PlayerMove;
   room: GameRoom;
 }
 
@@ -364,11 +395,26 @@ export interface DiceResultPayload {
   value: DiceValue;
   diceState: DiceState;
   summary: DiceSummary;
+  move: PlayerMove;
 }
 
 export interface DicePhaseCompletePayload {
   roomCode: string;
   summary: DiceSummary;
+}
+
+export interface BoardStatePayload {
+  roomCode: string;
+  board: BoardState;
+}
+
+export interface PlayerMovePayload {
+  roomCode: string;
+  move: PlayerMove;
+}
+
+export interface PlayerMovedPayload extends PlayerMovePayload {
+  board: BoardState;
 }
 
 export interface ServerToClientEvents {
@@ -388,6 +434,9 @@ export interface ServerToClientEvents {
   [SOCKET_EVENTS.DICE_STATE]: (payload: DiceStatePayload) => void;
   [SOCKET_EVENTS.DICE_ERROR]: (error: RoomError) => void;
   [SOCKET_EVENTS.DICE_PHASE_COMPLETE]: (payload: DicePhaseCompletePayload) => void;
+  [SOCKET_EVENTS.BOARD_STATE]: (payload: BoardStatePayload) => void;
+  [SOCKET_EVENTS.PLAYER_MOVE]: (payload: PlayerMovePayload) => void;
+  [SOCKET_EVENTS.PLAYER_MOVED]: (payload: PlayerMovedPayload) => void;
 }
 
 export interface ClientToServerEvents {

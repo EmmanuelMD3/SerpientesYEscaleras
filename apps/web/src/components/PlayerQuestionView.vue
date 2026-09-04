@@ -136,7 +136,8 @@ function isIncorrectSelection(
           {{ Math.round(result.responseTimeMs / 100) / 10 }}s
         </p>
         <p class="mt-3 text-base font-bold">
-          Respuesta correcta: {{ result?.correctOptionText ?? room.questionResults?.correctOptionText }}
+          Respuesta correcta:
+          {{ result?.correctOptionText ?? room.questionResults?.correctOptionText }}
         </p>
       </section>
 
@@ -153,7 +154,9 @@ function isIncorrectSelection(
         />
       </div>
 
-      <p class="rounded-lg border border-white/10 bg-white/10 px-4 py-4 text-center text-lg font-black">
+      <p
+        class="rounded-lg border border-white/10 bg-white/10 px-4 py-4 text-center text-lg font-black"
+      >
         Esperando al administrador
       </p>
     </template>
@@ -162,6 +165,7 @@ function isIncorrectSelection(
       v-else-if="room.status === GAME_STATUS.DICE_ROLL"
       :result="playerState.result"
       :dice="playerState.dice"
+      :move="playerState.move"
       :rolling="isRollingDice"
       @roll="emit('rollDice')"
     />
@@ -175,10 +179,15 @@ function isIncorrectSelection(
       <p class="mt-2 text-lg font-bold">Gracias por participar.</p>
     </section>
 
-    <section v-else class="rounded-lg border border-white/15 bg-black/25 p-6 text-center shadow-2xl backdrop-blur">
+    <section
+      v-else
+      class="rounded-lg border border-white/15 bg-black/25 p-6 text-center shadow-2xl backdrop-blur"
+    >
       <Clock3 class="mx-auto h-12 w-12 text-emerald-200" aria-hidden="true" />
       <h1 class="mt-4 text-3xl font-black">Ya estas dentro</h1>
-      <p class="mt-2 text-lg font-semibold text-white/70">Esperando a que el administrador inicie.</p>
+      <p class="mt-2 text-lg font-semibold text-white/70">
+        Esperando a que el administrador inicie.
+      </p>
     </section>
   </section>
 </template>

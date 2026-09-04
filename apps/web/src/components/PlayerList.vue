@@ -5,6 +5,7 @@ import type { Player } from '@embedded-snakes-live/shared';
 
 defineProps<{
   players: Player[];
+  wide?: boolean | undefined;
 }>();
 
 function formatJoinTime(joinedAt: string): string {
@@ -35,10 +36,16 @@ function formatJoinTime(joinedAt: string): string {
       class="rounded-lg border border-dashed border-white/20 bg-white/5 px-4 py-8 text-center"
     >
       <p class="text-lg font-black text-white">Aun no hay jugadores</p>
-      <p class="mt-1 text-sm font-semibold text-white/60">Comparte el enlace o el QR para empezar.</p>
+      <p class="mt-1 text-sm font-semibold text-white/60">
+        Comparte el enlace o el QR para empezar.
+      </p>
     </div>
 
-    <ul v-else class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+    <ul
+      v-else
+      class="grid gap-3 sm:grid-cols-2"
+      :class="wide ? 'xl:grid-cols-4' : 'xl:grid-cols-1'"
+    >
       <li
         v-for="player in players"
         :key="player.id"
@@ -48,6 +55,9 @@ function formatJoinTime(joinedAt: string): string {
           <p class="truncate text-lg font-black text-white">{{ player.name }}</p>
           <p class="text-xs font-bold uppercase tracking-wide text-white/50">
             Entro {{ formatJoinTime(player.joinedAt) }}
+          </p>
+          <p v-if="wide" class="mt-1 font-mono text-sm font-black text-emerald-200">
+            Posicion {{ player.position }}
           </p>
         </div>
         <span

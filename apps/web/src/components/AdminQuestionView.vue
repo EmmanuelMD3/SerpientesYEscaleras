@@ -2,11 +2,7 @@
 import { computed } from 'vue';
 import { CheckCircle2, Dices, HelpCircle, Users } from '@lucide/vue';
 
-import {
-  GAME_STATUS,
-  type GameRoom,
-  type QuestionOption,
-} from '@embedded-snakes-live/shared';
+import { GAME_STATUS, type GameRoom, type QuestionOption } from '@embedded-snakes-live/shared';
 
 import AdminDicePanel from './AdminDicePanel.vue';
 import AnswerOption from './AnswerOption.vue';
@@ -39,7 +35,9 @@ const nextButtonLabel = computed(() =>
 );
 
 function optionCount(option: QuestionOption): number {
-  return props.room.questionResults?.distribution.find((item) => item.optionId === option.id)?.count ?? 0;
+  return (
+    props.room.questionResults?.distribution.find((item) => item.optionId === option.id)?.count ?? 0
+  );
 }
 </script>
 
@@ -137,10 +135,15 @@ function optionCount(option: QuestionOption): number {
     >
       <CheckCircle2 class="h-12 w-12" aria-hidden="true" />
       <h2 class="mt-4 text-4xl font-black">Ronda terminada</h2>
-      <p class="mt-2 text-lg font-bold">La Fase 3 quedo cerrada. No hay tablero ni movimiento aun.</p>
+      <p class="mt-2 text-lg font-bold">
+        Las posiciones finales permanecen visibles en el tablero.
+      </p>
     </section>
 
-    <section v-else class="rounded-lg border border-white/15 bg-black/25 p-6 shadow-2xl backdrop-blur">
+    <section
+      v-else
+      class="rounded-lg border border-white/15 bg-black/25 p-6 shadow-2xl backdrop-blur"
+    >
       <HelpCircle class="h-10 w-10 text-amber-200" aria-hidden="true" />
       <h2 class="mt-4 text-3xl font-black">Estado de partida en espera</h2>
     </section>

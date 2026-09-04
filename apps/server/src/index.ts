@@ -22,6 +22,7 @@ import {
   type GameRoom,
   type InterServerEvents,
   type JoinRoomPayload,
+  type PlayerMove,
   type RejoinRoomPayload,
   type RoomError,
   type ServerToClientEvents,
@@ -240,6 +241,40 @@ function clearQuestionTimer(roomCode: string): void {
 
 function emitRoomState(room: GameRoom): void {
   io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.ROOM_STATE, room);
+}
+
+function emitBoardState(room: GameRoom): void {
+  if (!room.boardState) {
+    return;
+  }
+
+  for (const socketId of getAdminSocketIds(room.code)) {
+    io.to(socketId).emit(SOCKET_EVENTS.BOARD_STATE, {
+      roomCode: room.code,
+      board: room.boardState,
+    });
+  }
+}
+
+function emitPlayerMove(roomCode: string, move: PlayerMove): void {
+  for (const socketId of getAdminSocketIds(roomCode)) {
+    io.to(socketId).emit(SOCKET_EVENTS.PLAYER_MOVE, {
+      roomCode,
+      move,
+    });
+  }
+}
+
+function emitPlayerMoved(room: GameRoom, move: PlayerMove): void {
+  if (!room.boardState) {
+    return;
+  }
+
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.PLAYER_MOVED, {
+    roomCode: room.code,
+    move,
+    board: room.boardState,
+  });
 }
 
 function emitPlayerQuestionState(roomCode: string, playerId: string): void {
@@ -483,6 +518,7 @@ io.on('connection', (socket) => {
       },
     });
     socket.emit(SOCKET_EVENTS.ROOM_STATE, result.room);
+    emitBoardState(result.room);
   });
 
   socket.on(SOCKET_EVENTS.ROOM_JOIN, (payload: JoinRoomPayload, ack) => {
@@ -554,7 +590,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (!payload || typeof payload.roomCode !== 'string' || typeof payload.sessionToken !== 'string') {
+    if (
+      !payload ||
+      typeof payload.roomCode !== 'string' ||
+      typeof payload.sessionToken !== 'string'
+    ) {
       failRoomAck(socket.id, ack, invalidPayloadError('No pudimos validar tu sesion.'));
       return;
     }
@@ -615,6 +655,7 @@ io.on('connection', (socket) => {
       },
     });
     emitRoomState(result.room);
+    emitBoardState(result.room);
     scheduleCountdown(result.room);
   });
 
@@ -736,18 +777,23 @@ io.on('connection', (socket) => {
         value: result.value,
         diceState: result.diceState,
         playerState: result.playerState,
+        move: result.move,
         room: result.room,
       },
     });
+    emitPlayerMove(result.room.code, result.move);
     io.to(roomChannel(result.room.code)).emit(SOCKET_EVENTS.DICE_RESULT, {
       roomCode: result.room.code,
       playerId,
       value: result.value,
       diceState: result.diceState,
       summary: result.diceSummary,
+      move: result.move,
     });
+    emitPlayerMoved(result.room, result.move);
     emitPlayerQuestionState(result.room.code, playerId);
     emitRoomState(result.room);
+    emitBoardState(result.room);
     emitDiceState(result.room);
 
     if (result.shouldCompleteDicePhase) {

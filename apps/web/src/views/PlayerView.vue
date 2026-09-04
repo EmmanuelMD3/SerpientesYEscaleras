@@ -22,6 +22,7 @@ import {
   type DiceResultPayload,
   type GameRoom,
   type Player,
+  type PlayerMovedPayload,
   type PlayerQuestionState,
   type QuestionResultsPayload,
   type QuestionStartedPayload,
@@ -48,7 +49,11 @@ const room = ref<GameRoom | null>(null);
 const playerState = ref<PlayerQuestionState>({ hasSubmitted: false });
 const socketStatus = socketConnectionStatus;
 
-const roomCode = computed(() => String(route.params.roomCode ?? '').trim().toUpperCase());
+const roomCode = computed(() =>
+  String(route.params.roomCode ?? '')
+    .trim()
+    .toUpperCase(),
+);
 const trimmedName = computed(() => name.value.trim());
 const canSubmit = computed(
   () => trimmedName.value.length > 0 && trimmedName.value.length <= 25 && !isRejoining.value,
@@ -240,8 +245,7 @@ async function handleRollDice(): Promise<void> {
     room.value = response.data.room;
     playerState.value = response.data.playerState;
   } catch (error) {
-    errorMessage.value =
-      error instanceof Error ? error.message : 'No pudimos lanzar tu dado.';
+    errorMessage.value = error instanceof Error ? error.message : 'No pudimos lanzar tu dado.';
   } finally {
     isRollingDice.value = false;
   }
@@ -253,6 +257,12 @@ function handleRoomState(nextRoom: GameRoom): void {
   }
 
   room.value = nextRoom;
+  const currentPlayer = nextRoom.players.find((candidate) => candidate.id === player.value?.id);
+
+  if (currentPlayer) {
+    player.value = currentPlayer;
+  }
+
   syncDiceStateFromRoom(nextRoom);
 
   if (nextRoom.status === GAME_STATUS.COUNTDOWN) {
@@ -278,7 +288,9 @@ function syncDiceStateFromRoom(nextRoom: GameRoom): void {
     return;
   }
 
-  const dicePlayer = nextRoom.dicePlayers?.find((candidate) => candidate.playerId === currentPlayerId);
+  const dicePlayer = nextRoom.dicePlayers?.find(
+    (candidate) => candidate.playerId === currentPlayerId,
+  );
 
   if (!dicePlayer) {
     return;
@@ -363,7 +375,35 @@ function handleDiceResult(payload: DiceResultPayload): void {
   playerState.value = {
     ...playerState.value,
     dice: payload.diceState,
+    move: payload.move,
   };
+}
+
+function handlePlayerMoved(payload: PlayerMovedPayload): void {
+  if (payload.roomCode !== roomCode.value || !room.value) {
+    return;
+  }
+
+  room.value = {
+    ...room.value,
+    boardState: payload.board,
+    players: room.value.players.map((candidate) =>
+      candidate.id === payload.move.playerId
+        ? { ...candidate, position: payload.move.toPosition }
+        : candidate,
+    ),
+  };
+
+  if (payload.move.playerId === player.value?.id) {
+    player.value = {
+      ...player.value,
+      position: payload.move.toPosition,
+    };
+    playerState.value = {
+      ...playerState.value,
+      move: payload.move,
+    };
+  }
 }
 
 function handlePlayerState(nextState: PlayerQuestionState): void {
@@ -388,6 +428,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.DICE_PHASE_START, handleDicePhaseStart);
   socket.on(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
+  socket.on(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
   socket.on('connect', handleSocketReconnect);
   void attemptPlayerRejoin();
 });
@@ -402,6 +443,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.DICE_PHASE_START, handleDicePhaseStart);
   socket.off(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
+  socket.off(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
   socket.off('connect', handleSocketReconnect);
 });
 </script>
@@ -409,7 +451,9 @@ onBeforeUnmount(() => {
 <template>
   <main class="min-h-screen bg-game px-4 py-6 text-white">
     <section class="mx-auto flex min-h-[calc(100vh-3rem)] max-w-xl items-center">
-      <div class="w-full rounded-lg border border-white/15 bg-black/25 p-5 shadow-2xl backdrop-blur sm:p-7">
+      <div
+        class="w-full rounded-lg border border-white/15 bg-black/25 p-5 shadow-2xl backdrop-blur sm:p-7"
+      >
         <div class="mb-7 flex items-center justify-between gap-4">
           <div
             class="flex h-14 w-14 items-center justify-center rounded-lg bg-emerald-300 text-zinc-950 shadow-glow"
@@ -462,7 +506,9 @@ onBeforeUnmount(() => {
               type="submit"
               :disabled="isJoining || !canSubmit"
             >
-              {{ isJoining ? 'Entrando...' : isRejoining ? 'Recuperando...' : 'Entrar a la partida' }}
+              {{
+                isJoining ? 'Entrando...' : isRejoining ? 'Recuperando...' : 'Entrar a la partida'
+              }}
               <ArrowRight class="h-5 w-5" aria-hidden="true" />
             </button>
           </form>

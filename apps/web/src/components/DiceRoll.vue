@@ -5,6 +5,7 @@ import { CheckCircle2, Hourglass, XCircle } from '@lucide/vue';
 import {
   PLAYER_RESULT_STATUS,
   type DiceState,
+  type PlayerMove,
   type PlayerQuestionResult,
 } from '@embedded-snakes-live/shared';
 
@@ -13,6 +14,7 @@ import DiceFace from './DiceFace.vue';
 const props = defineProps<{
   result?: PlayerQuestionResult | undefined;
   dice?: DiceState | undefined;
+  move?: PlayerMove | undefined;
   rolling?: boolean | undefined;
 }>();
 
@@ -20,7 +22,9 @@ const emit = defineEmits<{
   roll: [];
 }>();
 
-const canRoll = computed(() => Boolean(props.dice?.eligible && !props.dice.rolled && !props.rolling));
+const canRoll = computed(() =>
+  Boolean(props.dice?.eligible && !props.dice.rolled && !props.rolling),
+);
 const value = computed(() => props.dice?.value ?? null);
 
 const title = computed(() => {
@@ -41,7 +45,7 @@ const title = computed(() => {
 
 const message = computed(() => {
   if (props.dice?.rolled && props.dice.value) {
-    return `Tu resultado fue ${props.dice.value}.`;
+    return 'El servidor confirmo tu movimiento.';
   }
 
   if (props.dice?.eligible) {
@@ -70,6 +74,14 @@ const statusClass = computed(() => {
 
   return 'border-amber-200/50 bg-amber-200 text-zinc-950';
 });
+
+const advancedPositions = computed(() => {
+  if (!props.move) {
+    return 0;
+  }
+
+  return props.move.toPosition - props.move.fromPosition;
+});
 </script>
 
 <template>
@@ -80,11 +92,21 @@ const statusClass = computed(() => {
       <p class="mt-3 text-lg font-bold">{{ message }}</p>
     </div>
 
-    <div class="grid justify-items-center rounded-lg border border-white/15 bg-black/25 p-6 text-center shadow-2xl backdrop-blur">
+    <div
+      class="grid justify-items-center rounded-lg border border-white/15 bg-black/25 p-6 text-center shadow-2xl backdrop-blur"
+    >
       <DiceFace :value="value" :rolling="rolling" />
       <p v-if="dice?.rolled && dice.value" class="mt-5 font-mono text-7xl font-black text-white">
         {{ dice.value }}
       </p>
+      <div
+        v-if="move"
+        class="mt-5 w-full rounded-lg border border-emerald-200/30 bg-emerald-300/15 p-4 text-white"
+      >
+        <p class="text-base font-black">Avanzaste {{ advancedPositions }} casillas.</p>
+        <p class="mt-2 text-sm font-bold uppercase text-white/60">Nueva posicion</p>
+        <p class="font-mono text-5xl font-black text-emerald-200">{{ move.toPosition }}</p>
+      </div>
       <button
         v-if="dice?.eligible"
         class="mt-6 inline-flex min-h-14 w-full items-center justify-center rounded-lg bg-emerald-300 px-5 text-lg font-black uppercase text-zinc-950 shadow-glow transition hover:-translate-y-0.5 hover:bg-emerald-200 disabled:cursor-not-allowed disabled:opacity-60"
