@@ -21,6 +21,7 @@ import {
   type DicePhaseStartPayload,
   type DiceResultPayload,
   type GameFinishedPayload,
+  type GameResetPayload,
   type GameRoom,
   type Player,
   type PlayerMovedPayload,
@@ -48,6 +49,7 @@ const isRollingDice = ref(false);
 const player = ref<Player | null>(null);
 const room = ref<GameRoom | null>(null);
 const playerState = ref<PlayerQuestionState>({ hasSubmitted: false });
+const noticeMessage = ref('');
 const socketStatus = socketConnectionStatus;
 
 const roomCode = computed(() =>
@@ -267,6 +269,7 @@ function handleRoomState(nextRoom: GameRoom): void {
   syncDiceStateFromRoom(nextRoom);
 
   if (nextRoom.status === GAME_STATUS.COUNTDOWN) {
+    noticeMessage.value = '';
     playerState.value = { hasSubmitted: false };
   }
 
@@ -275,6 +278,7 @@ function handleRoomState(nextRoom: GameRoom): void {
     nextRoom.currentQuestion &&
     playerState.value.questionId !== nextRoom.currentQuestion.id
   ) {
+    noticeMessage.value = '';
     playerState.value = {
       questionId: nextRoom.currentQuestion.id,
       hasSubmitted: false,
@@ -312,6 +316,7 @@ function handleQuestionStarted(payload: QuestionStartedPayload): void {
     return;
   }
 
+  noticeMessage.value = '';
   room.value = {
     ...room.value,
     status: GAME_STATUS.QUESTION_ACTIVE,
@@ -329,6 +334,7 @@ function handleQuestionResults(payload: QuestionResultsPayload): void {
     return;
   }
 
+  noticeMessage.value = '';
   room.value = {
     ...room.value,
     status: GAME_STATUS.QUESTION_RESULTS,
@@ -412,7 +418,24 @@ function handleGameFinished(payload: GameFinishedPayload): void {
     return;
   }
 
+  noticeMessage.value = '';
   room.value = payload.room;
+  const currentPlayer = payload.room.players.find((candidate) => candidate.id === player.value?.id);
+
+  if (currentPlayer) {
+    player.value = currentPlayer;
+  }
+}
+
+function handleGameReset(payload: GameResetPayload): void {
+  if (payload.roomCode !== roomCode.value) {
+    return;
+  }
+
+  room.value = payload.room;
+  playerState.value = { hasSubmitted: false };
+  noticeMessage.value = payload.message;
+
   const currentPlayer = payload.room.players.find((candidate) => candidate.id === player.value?.id);
 
   if (currentPlayer) {
@@ -443,6 +466,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
+  socket.on(SOCKET_EVENTS.GAME_RESET, handleGameReset);
   socket.on(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.on('connect', handleSocketReconnect);
   void attemptPlayerRejoin();
@@ -459,6 +483,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.DICE_RESULT, handleDiceResult);
   socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off(SOCKET_EVENTS.PLAYER_MOVED, handlePlayerMoved);
+  socket.off(SOCKET_EVENTS.GAME_RESET, handleGameReset);
   socket.off(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.off('connect', handleSocketReconnect);
 });
@@ -541,6 +566,7 @@ onBeforeUnmount(() => {
             :room="room"
             :player="player"
             :player-state="playerState"
+            :notice-message="noticeMessage"
             :is-submitting="isSubmittingAnswer"
             :is-rolling-dice="isRollingDice"
             @answer="handleSubmitAnswer"

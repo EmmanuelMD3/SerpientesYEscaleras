@@ -2,7 +2,7 @@
 
 Aplicacion web multijugador en tiempo real para una actividad universitaria de Software Embebido.
 
-La fase actual implementa arquitectura base, lobby, preguntas simultaneas tipo Kahoot, dado individual por ronda, tablero numerico de 40 casillas, serpientes, escaleras y condicion de ganador. Quienes aciertan lanzan un dado generado por el servidor; el backend resuelve aterrizaje, movimiento especial y posicion final. Si se agota el banco de preguntas sin ganador, el servidor prepara otro ciclo barajado sin reiniciar la partida.
+La fase actual implementa arquitectura base, lobby, controles administrativos, preguntas simultaneas tipo Kahoot, dado individual por ronda, tablero numerico de 50 casillas, serpientes, escaleras y condicion de ganador. Quienes aciertan lanzan un dado generado por el servidor; el backend resuelve aterrizaje, movimiento especial y posicion final. Si se agota el banco de 30 preguntas sin ganador, el servidor prepara otro ciclo barajado sin reiniciar la partida.
 
 ## Arquitectura
 
@@ -107,9 +107,17 @@ No hay scripts que cierren procesos automaticamente.
 19. Confirma que un jugador incorrecto permanece en la misma posicion.
 20. Cuando todos los elegibles hayan lanzado, pulsa `SIGUIENTE PREGUNTA` y confirma que las posiciones no se reinician.
 21. Repite hasta agotar el banco; la partida debe preparar otro ciclo barajado y no debe pasar a `FINISHED` por falta de preguntas.
-22. Si un jugador llega a la casilla 40, espera a que todos los elegibles terminen sus dados; entonces debe mostrarse el ganador.
+22. Si un jugador llega a la casilla 50, espera a que todos los elegibles terminen sus dados; entonces debe mostrarse el ganador.
 23. Recarga admin y un jugador; ambos deben recuperar posiciones, tablero, winner y clasificacion final si la partida termino.
 24. Cierra la pestana de `Michelle`; el panel del administrador marcara su desconexion si la partida sigue activa.
+
+## Controles administrativos
+
+El panel admin incluye un modal `CONTROLES` con confirmacion modal para cada accion:
+
+- `REINICIAR PARTIDA`: conserva el codigo, la sala, jugadores, identidades y tokens. Limpia posiciones, preguntas, resultados, dados, historial, winner, ciclo y ronda. La sala vuelve a `LOBBY`.
+- `TERMINAR PARTIDA`: finaliza la sala actual con `finishReason = ADMIN_ENDED` y `winner = null`. Conserva posiciones finales y clasificacion por posicion.
+- `NUEVA PARTIDA`: finaliza la sala anterior con `finishReason = ADMIN_NEW_GAME`, crea un codigo nuevo, genera un nuevo admin token y deja la nueva sala con cero jugadores.
 
 ## Serpientes y escaleras
 
@@ -117,21 +125,21 @@ La configuracion vive en `packages/shared/src/index.ts` como `BOARD_SPECIALS`.
 
 Escaleras:
 
-- `3 -> 11`
-- `8 -> 18`
-- `15 -> 26`
-- `22 -> 34`
-- `28 -> 37`
+- `4 -> 19`
+- `9 -> 27`
+- `14 -> 32`
+- `24 -> 39`
+- `33 -> 46`
 
 Serpientes:
 
-- `13 -> 5`
-- `20 -> 9`
-- `27 -> 16`
-- `35 -> 24`
-- `39 -> 30`
+- `18 -> 7`
+- `30 -> 13`
+- `37 -> 21`
+- `44 -> 26`
+- `49 -> 34`
 
-El servidor valida que las posiciones esten entre `1` y `40`, que `from !== to`, que las escaleras suban, que las serpientes bajen y que no existan dos especiales con el mismo `from`.
+El servidor valida que las posiciones esten entre `1` y `50`, que `from !== to`, que las escaleras suban, que las serpientes bajen y que no existan dos especiales con el mismo `from`.
 
 Por lanzamiento solo se aplica un movimiento especial. El destino de una serpiente o escalera no encadena otro movimiento.
 
@@ -169,6 +177,9 @@ Los nombres y tipos viven en `packages/shared/src/index.ts`.
 - `player:state`: el servidor envia el estado individual de pregunta a un jugador.
 - `room:error`: el servidor envia errores amigables y tipados.
 - `game:start`: el administrador inicia la ronda de preguntas.
+- `game:reset`: el administrador reinicia la misma sala o el servidor notifica a jugadores que volvieron al lobby.
+- `game:end`: el administrador termina manualmente la sala.
+- `game:new`: el administrador finaliza la sala actual y crea una sala nueva.
 - `question:started`: el servidor publica una pregunta sin `correctOptionId`.
 - `answer:submit`: un jugador envia una respuesta.
 - `answer:accepted`: el servidor confirma una respuesta aceptada.
@@ -184,15 +195,15 @@ Los nombres y tipos viven en `packages/shared/src/index.ts`.
 - `player:move`: el servidor envia al admin el movimiento confirmado para su cola visual.
 - `player:moved`: el servidor publica el movimiento y estado final del tablero.
 - `board:state`: el servidor envia al admin el tablero completo para entrada o reconexion.
-- `game:finished`: el servidor publica ganador, tablero final y clasificacion final.
+- `game:finished`: el servidor publica razon de fin, ganador opcional, tablero final y clasificacion final.
 
 ## Modelos principales
 
 - `Player`: `id`, `name`, `connected`, `joinedAt`, `position`.
-- `GameRoom`: estado de sala, preguntas, dados, `winner`, clasificacion final y `boardState`.
+- `GameRoom`: estado de sala, preguntas, dados, `winner`, `finishReason`, clasificacion final y `boardState`.
 - `BoardSpecial`: `type`, `from`, `to`.
 - `SpecialMove`: serpiente o escalera aplicada durante un lanzamiento.
-- `BoardState`: limite de 40 casillas, posicion publica de cada jugador y especiales visuales.
+- `BoardState`: limite de 50 casillas, posicion publica de cada jugador y especiales visuales.
 - `PlayerMove`: jugador, posicion anterior, dado, aterrizaje por dado, movimiento especial opcional, posicion final, pregunta, ciclo y ronda.
 - `PublicQuestion`: pregunta visible para clientes, sin `correctOptionId`.
 - `Question`: pregunta interna del servidor, con `correctOptionId`.
@@ -200,6 +211,7 @@ Los nombres y tipos viven en `packages/shared/src/index.ts`.
 - `DiceSummary`: total elegible, total lanzado y si la fase esta completa.
 - `RoundResult`: historial interno por ronda/ciclo con resultado, dado, `rollLandingPosition`, `specialMove`, `positionBefore` y `positionAfter`.
 - `GameWinner`: ganador final con jugador, posicion, ronda, ciclo y `responseTimeMs`.
+- `GameFinishReason`: `WINNER`, `ADMIN_ENDED` o `ADMIN_NEW_GAME`.
 - `GameStatus`: `LOBBY`, `COUNTDOWN`, `QUESTION_ACTIVE`, `QUESTION_RESULTS`, `DICE_ROLL`, `FINISHED`.
 
 ## Movimiento y ganador
@@ -208,12 +220,12 @@ El backend resuelve cada lanzamiento asi:
 
 1. Genera `diceValue`.
 2. Lee la posicion actual del jugador.
-3. Calcula `rollLandingPosition = Math.min(position + diceValue, 40)`.
+3. Calcula `rollLandingPosition = Math.min(position + diceValue, 50)`.
 4. Busca si el aterrizaje exacto tiene serpiente o escalera.
 5. Calcula `finalPosition = specialMove.to` o el aterrizaje normal.
 6. Guarda `player.position = finalPosition`, historial y publica `BoardState`.
 
-La casilla `40` no requiere tirada exacta. Si uno o mas jugadores llegan a `40` en la misma fase de dados, el servidor espera a que todos los jugadores elegibles terminen. Despues gana quien llego a meta durante esa ronda con menor `responseTimeMs`; si empatan, gana quien entro antes (`joinedAt`); si todavia empatan, gana el `playerId` lexicograficamente menor. Cuando hay winner, `GameStatus` pasa a `FINISHED` y ya no se permite avanzar pregunta, habilitar dados ni lanzar dados.
+La casilla `50` no requiere tirada exacta. Si uno o mas jugadores llegan a `50` en la misma fase de dados, el servidor espera a que todos los jugadores elegibles terminen. Despues gana quien llego a meta durante esa ronda con menor `responseTimeMs`; si empatan, gana quien entro antes (`joinedAt`); si todavia empatan, gana el `playerId` lexicograficamente menor. Cuando hay winner, `GameStatus` pasa a `FINISHED` con `finishReason = WINNER` y ya no se permite avanzar pregunta, habilitar dados ni lanzar dados.
 
 ## Comandos
 
@@ -256,6 +268,6 @@ No se incluye `railway.toml` ni `railway.json`: Railway marco Config as Code com
 
 ## Alcance de esta fase
 
-Incluye preguntas simultaneas, ciclos barajados sin repeticion dentro de cada ciclo, countdown, temporizador validado por servidor, una respuesta por jugador, resultados individuales, reconexion conservadora, dado individual, posiciones persistentes en memoria, tablero admin de 40 casillas, serpientes, escaleras y condicion de ganador.
+Incluye preguntas simultaneas, ciclos barajados de 30 preguntas sin repeticion dentro de cada ciclo, countdown, temporizador validado por servidor, una respuesta por jugador, resultados individuales, reconexion conservadora, dado individual, posiciones persistentes en memoria, controles administrativos, tablero admin de 50 casillas, serpientes, escaleras y condicion de ganador.
 
 No incluye casillas especiales adicionales, escudos, intercambios, bonificaciones, base de datos, GSAP, sonidos ni sistema de cuentas.

@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { Server, type ServerOptions } from 'socket.io';
 
 import {
+  GAME_FINISH_REASON,
   GAME_STATUS,
   ROOM_ERROR_CODES,
   SOCKET_EVENTS,
@@ -22,6 +23,7 @@ import {
   type GameRoom,
   type InterServerEvents,
   type JoinRoomPayload,
+  type NewGameResponse,
   type PlayerMove,
   type RejoinRoomPayload,
   type RoomError,
@@ -45,7 +47,9 @@ import {
   rejoinPlayer,
   removeAdminSocket,
   requestNextQuestion,
+  resetGame,
   rollDice,
+  endGame,
   startGame,
   startDicePhase,
   submitAnswer,
@@ -199,6 +203,15 @@ function failGameAck(
   emitGameError(socketId, error);
 }
 
+function failNewGameAck(
+  socketId: string,
+  ack: ((response: NewGameResponse) => void) | undefined,
+  error: RoomError,
+): void {
+  ack?.({ ok: false, error });
+  emitGameError(socketId, error);
+}
+
 function failAnswerAck(
   socketId: string,
   ack: ((response: AnswerSubmitResponse) => void) | undefined,
@@ -237,6 +250,11 @@ function clearQuestionTimer(roomCode: string): void {
     clearTimeout(timer);
     questionTimers.delete(roomCode);
   }
+}
+
+function clearRoomTimers(roomCode: string): void {
+  clearCountdownTimer(roomCode);
+  clearQuestionTimer(roomCode);
 }
 
 function emitRoomState(room: GameRoom): void {
@@ -278,16 +296,26 @@ function emitPlayerMoved(room: GameRoom, move: PlayerMove): void {
 }
 
 function emitGameFinished(room: GameRoom): void {
-  if (!room.winner || !room.finalLeaderboard || !room.boardState) {
+  if (!room.finishReason || !room.finalLeaderboard || !room.boardState) {
     return;
   }
 
   io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.GAME_FINISHED, {
     roomCode: room.code,
     room,
-    winner: room.winner,
+    winner: room.winner ?? null,
+    finishReason: room.finishReason,
     leaderboard: room.finalLeaderboard,
     board: room.boardState,
+  });
+}
+
+function emitGameReset(room: GameRoom): void {
+  io.to(roomChannel(room.code)).emit(SOCKET_EVENTS.GAME_RESET, {
+    roomCode: room.code,
+    room,
+    message:
+      'La partida fue reiniciada por el administrador. Esperando a que vuelva a iniciar...',
   });
 }
 
@@ -671,6 +699,139 @@ io.on('connection', (socket) => {
     emitRoomState(result.room);
     emitBoardState(result.room);
     scheduleCountdown(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.GAME_RESET, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar el reinicio de la partida.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const result = resetGame(payload.roomCode, socket.id);
+
+    if (!result.ok) {
+      failGameAck(socket.id, ack, result.error);
+      return;
+    }
+
+    clearRoomTimers(result.room.code);
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+      },
+    });
+    emitGameReset(result.room);
+    emitRoomState(result.room);
+    emitAllPlayerQuestionStates(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.GAME_END, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar el cierre de la partida.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const result = endGame(payload.roomCode, socket.id);
+
+    if (!result.ok) {
+      failGameAck(socket.id, ack, result.error);
+      return;
+    }
+
+    clearRoomTimers(result.room.code);
+    ack({
+      ok: true,
+      data: {
+        room: result.room,
+      },
+    });
+    emitRoomState(result.room);
+    emitBoardState(result.room);
+    emitGameFinished(result.room);
+    emitAllPlayerQuestionStates(result.room);
+  });
+
+  socket.on(SOCKET_EVENTS.GAME_NEW, (payload: GameControlPayload, ack) => {
+    if (typeof ack !== 'function') {
+      failNewGameAck(
+        socket.id,
+        undefined,
+        invalidPayloadError('No pudimos confirmar la nueva partida.'),
+      );
+      return;
+    }
+
+    if (!payload || typeof payload.roomCode !== 'string') {
+      failNewGameAck(socket.id, ack, invalidPayloadError('No pudimos validar la sala.'));
+      return;
+    }
+
+    const previousResult = endGame(
+      payload.roomCode,
+      socket.id,
+      GAME_FINISH_REASON.ADMIN_NEW_GAME,
+    );
+
+    if (!previousResult.ok) {
+      failNewGameAck(socket.id, ack, previousResult.error);
+      return;
+    }
+
+    clearRoomTimers(previousResult.room.code);
+    emitRoomState(previousResult.room);
+    emitBoardState(previousResult.room);
+    emitGameFinished(previousResult.room);
+    emitAllPlayerQuestionStates(previousResult.room);
+
+    socket.leave(roomChannel(previousResult.room.code));
+    removeAdminSocket(previousResult.room.code, socket.id);
+
+    const created = createRoom();
+    const activeRoom = addAdminSocket(created.room.code, socket.id);
+
+    if (!activeRoom) {
+      failNewGameAck(socket.id, ack, {
+        code: ROOM_ERROR_CODES.SERVER_ERROR,
+        message: 'No pudimos crear la nueva partida. Intentalo de nuevo.',
+      });
+      return;
+    }
+
+    socket.data.role = 'admin';
+    socket.data.roomCode = activeRoom.code;
+    delete socket.data.playerId;
+    socket.data.sessionToken = created.adminSessionToken;
+    socket.join(roomChannel(activeRoom.code));
+
+    ack({
+      ok: true,
+      data: {
+        previousRoom: previousResult.room,
+        room: activeRoom,
+        joinPath: `/play/${activeRoom.code}`,
+        adminSessionToken: created.adminSessionToken,
+      },
+    });
+    socket.emit(SOCKET_EVENTS.ROOM_STATE, activeRoom);
   });
 
   socket.on(SOCKET_EVENTS.DICE_PHASE_START, (payload: GameControlPayload, ack) => {

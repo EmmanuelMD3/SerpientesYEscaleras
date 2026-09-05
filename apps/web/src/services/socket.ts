@@ -13,6 +13,7 @@ import {
   type GameControlResponse,
   type JoinRoomPayload,
   type JoinRoomResponse,
+  type NewGameResponse,
   type RejoinRoomPayload,
   type RejoinRoomResponse,
   type ServerToClientEvents,
@@ -209,6 +210,72 @@ export function startGame(
     }, 4_000);
 
     socketInstance.emit(SOCKET_EVENTS.GAME_START, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function resetGame(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<GameControlResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en reiniciar la partida.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.GAME_RESET, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function endGame(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<GameControlResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en terminar la partida.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.GAME_END, payload, (response) => {
+      window.clearTimeout(timeout);
+      resolve(response);
+    });
+  });
+}
+
+export function createNewGame(
+  socketInstance: AppSocket,
+  payload: GameControlPayload,
+): Promise<NewGameResponse> {
+  return new Promise((resolve) => {
+    const timeout = window.setTimeout(() => {
+      resolve({
+        ok: false,
+        error: {
+          code: ROOM_ERROR_CODES.SERVER_ERROR,
+          message: 'El servidor tardo demasiado en crear la nueva partida.',
+        },
+      });
+    }, 4_000);
+
+    socketInstance.emit(SOCKET_EVENTS.GAME_NEW, payload, (response) => {
       window.clearTimeout(timeout);
       resolve(response);
     });

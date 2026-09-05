@@ -1,8 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { Dices, HelpCircle, Trophy, Users } from '@lucide/vue';
+import { Dices, Flag, HelpCircle, Trophy, Users } from '@lucide/vue';
 
-import { GAME_STATUS, type GameRoom, type QuestionOption } from '@embedded-snakes-live/shared';
+import {
+  BOARD_MAX_POSITION,
+  GAME_FINISH_REASON,
+  GAME_STATUS,
+  type GameRoom,
+  type QuestionOption,
+} from '@embedded-snakes-live/shared';
 
 import AdminDicePanel from './AdminDicePanel.vue';
 import AnswerOption from './AnswerOption.vue';
@@ -34,7 +40,31 @@ const nextButtonLabel = computed(() =>
   hasMoreQuestions.value ? 'Siguiente pregunta' : 'Nuevo ciclo',
 );
 const winner = computed(() => props.room.winner);
+const finishReason = computed(() => props.room.finishReason);
 const leaderboard = computed(() => props.room.finalLeaderboard ?? []);
+const finishedByWinner = computed(() => finishReason.value === GAME_FINISH_REASON.WINNER);
+const finishedTitle = computed(() => {
+  if (finishedByWinner.value) {
+    return winner.value?.playerName ?? 'Partida terminada';
+  }
+
+  if (finishReason.value === GAME_FINISH_REASON.ADMIN_NEW_GAME) {
+    return 'Nueva partida creada';
+  }
+
+  return 'Partida finalizada manualmente';
+});
+const finishedSubtitle = computed(() => {
+  if (finishedByWinner.value) {
+    return `Llego a la casilla ${BOARD_MAX_POSITION}.`;
+  }
+
+  if (finishReason.value === GAME_FINISH_REASON.ADMIN_NEW_GAME) {
+    return 'La sala anterior quedo cerrada para iniciar otra.';
+  }
+
+  return 'No se asigno ganador.';
+});
 const winnerResponseSeconds = computed(() => {
   if (winner.value?.responseTimeMs === null || winner.value?.responseTimeMs === undefined) {
     return null;
@@ -142,13 +172,16 @@ function optionCount(option: QuestionOption): number {
       v-else-if="room.status === GAME_STATUS.FINISHED"
       class="rounded-lg border border-amber-200/50 bg-amber-200 p-6 text-zinc-950 shadow-glow"
     >
-      <Trophy class="h-12 w-12" aria-hidden="true" />
-      <p class="mt-4 text-sm font-black uppercase tracking-[0.25em]">Tenemos ganador</p>
+      <Trophy v-if="finishedByWinner" class="h-12 w-12" aria-hidden="true" />
+      <Flag v-else class="h-12 w-12" aria-hidden="true" />
+      <p class="mt-4 text-sm font-black uppercase tracking-[0.25em]">
+        {{ finishedByWinner ? 'Tenemos ganador' : 'Partida terminada' }}
+      </p>
       <h2 class="mt-2 text-5xl font-black uppercase leading-none">
-        {{ winner?.playerName ?? 'Partida terminada' }}
+        {{ finishedTitle }}
       </h2>
-      <p class="mt-3 text-lg font-bold">Llego a la casilla 40.</p>
-      <div v-if="winner" class="mt-5 grid gap-3 sm:grid-cols-2">
+      <p class="mt-3 text-lg font-bold">{{ finishedSubtitle }}</p>
+      <div v-if="winner && finishedByWinner" class="mt-5 grid gap-3 sm:grid-cols-2">
         <div class="rounded-lg bg-zinc-950 px-4 py-3 text-white">
           <p class="text-xs font-black uppercase tracking-wide text-white/50">Ronda</p>
           <p class="font-mono text-3xl font-black">{{ winner.roundNumber }}</p>

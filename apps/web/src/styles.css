@@ -59,7 +59,6 @@
     isolation: isolate;
     display: grid;
     grid-template-columns: repeat(10, minmax(0, 1fr));
-    grid-template-rows: repeat(4, minmax(92px, 1fr));
     min-width: 0;
   }
 
@@ -136,14 +135,15 @@
 
   .board-cell__special {
     display: inline-flex;
-    min-width: 1.45rem;
-    height: 1.45rem;
+    min-width: 1.2rem;
+    height: 1.2rem;
     align-items: center;
     justify-content: center;
     border-radius: 9999px;
-    background: rgba(24, 24, 27, 0.82);
-    font-size: 0.82rem;
+    background: rgba(24, 24, 27, 0.58);
+    font-size: 0.68rem;
     line-height: 1;
+    opacity: 0.82;
   }
 
   .board-cell__tokens {
@@ -206,86 +206,89 @@
   }
 
   .board-ladder__centerline {
-    stroke: rgba(120, 53, 15, 0.9);
-    stroke-width: 3;
+    stroke: rgba(120, 53, 15, 0.55);
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-dasharray: 7 8;
   }
 
   .board-ladder__rail-outline,
   .board-ladder__rung-outline {
-    stroke: rgba(69, 26, 3, 0.96);
+    stroke: rgba(69, 26, 3, 0.78);
     stroke-linecap: round;
     stroke-linejoin: round;
   }
 
   .board-ladder__rail-outline {
-    stroke-width: 15;
+    stroke-width: 11;
   }
 
   .board-ladder__rung-outline {
-    stroke-width: 12;
+    stroke-width: 9;
   }
 
   .board-ladder__rail {
     stroke: #b45309;
-    stroke-width: 9;
+    stroke-width: 6;
     stroke-linecap: round;
     stroke-linejoin: round;
+    opacity: 0.82;
   }
 
   .board-ladder__rung {
     stroke: #f59e0b;
-    stroke-width: 7;
+    stroke-width: 4.5;
     stroke-linecap: round;
     stroke-linejoin: round;
+    opacity: 0.78;
   }
 
   .board-ladder__rail-highlight {
-    stroke: rgba(254, 243, 199, 0.72);
-    stroke-width: 3;
+    stroke: rgba(254, 243, 199, 0.52);
+    stroke-width: 2;
     stroke-linecap: round;
   }
 
   .board-snake {
     --snake-body: #16a34a;
     --snake-belly: #dcfce7;
-    --snake-dark: #052e16;
+    --snake-dark: #064e3b;
     --snake-head: #15803d;
+    opacity: 0.84;
   }
 
   .board-snake--1 {
-    --snake-body: #e11d48;
-    --snake-belly: #ffe4e6;
-    --snake-dark: #4c0519;
-    --snake-head: #be123c;
+    --snake-body: #059669;
+    --snake-belly: #d1fae5;
+    --snake-dark: #064e3b;
+    --snake-head: #047857;
   }
 
   .board-snake--2 {
-    --snake-body: #2563eb;
-    --snake-belly: #dbeafe;
-    --snake-dark: #172554;
-    --snake-head: #1d4ed8;
+    --snake-body: #22c55e;
+    --snake-belly: #dcfce7;
+    --snake-dark: #14532d;
+    --snake-head: #16a34a;
   }
 
   .board-snake--3 {
-    --snake-body: #7c3aed;
-    --snake-belly: #ede9fe;
-    --snake-dark: #2e1065;
-    --snake-head: #6d28d9;
+    --snake-body: #0d9488;
+    --snake-belly: #ccfbf1;
+    --snake-dark: #134e4a;
+    --snake-head: #0f766e;
   }
 
   .board-snake--4 {
-    --snake-body: #0f766e;
+    --snake-body: #15803d;
     --snake-belly: #ccfbf1;
-    --snake-dark: #042f2e;
-    --snake-head: #0d9488;
+    --snake-dark: #052e16;
+    --snake-head: #166534;
   }
 
   .board-snake__outline {
     fill: none;
     stroke: var(--snake-dark);
-    stroke-width: 23;
+    stroke-width: 15;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -293,7 +296,7 @@
   .board-snake__body {
     fill: none;
     stroke: var(--snake-body);
-    stroke-width: 15;
+    stroke-width: 9;
     stroke-linecap: round;
     stroke-linejoin: round;
   }
@@ -301,10 +304,10 @@
   .board-snake__belly {
     fill: none;
     stroke: var(--snake-belly);
-    stroke-width: 4;
+    stroke-width: 2.4;
     stroke-dasharray: 0.035 0.055;
     stroke-linecap: round;
-    opacity: 0.95;
+    opacity: 0.78;
   }
 
   .board-snake__head-fill,
@@ -315,11 +318,11 @@
   }
 
   .board-snake__head-fill {
-    stroke-width: 4;
+    stroke-width: 2.6;
   }
 
   .board-snake__tail path {
-    stroke-width: 3;
+    stroke-width: 2;
   }
 
   .board-snake__eye {

@@ -30,10 +30,14 @@ const processingQueue = ref(false);
 const processedMoves = new Set<string>();
 let specialNoticeTimeout: number | undefined;
 
+const rowCount = computed(() => Math.ceil(props.board.maxPosition / 10));
+const boardGridStyle = computed(() => ({
+  gridTemplateRows: `repeat(${rowCount.value}, minmax(82px, 1fr))`,
+}));
 const cells = computed(() => {
   const rows: number[][] = [];
 
-  for (let row = 0; row < props.board.maxPosition / 10; row += 1) {
+  for (let row = 0; row < rowCount.value; row += 1) {
     const rowStart = row * 10 + 1;
     const values = Array.from({ length: 10 }, (_, index) => rowStart + index);
     rows.push(row % 2 === 0 ? values : values.reverse());
@@ -88,7 +92,7 @@ const specialTokenStyle = computed(() => {
 
   return {
     left: `${(point.x / 10) * 100}%`,
-    top: `${(point.y / 4) * 100}%`,
+    top: `${(point.y / rowCount.value) * 100}%`,
   };
 });
 
@@ -142,7 +146,7 @@ function pointForPosition(position: number): { x: number; y: number } {
 
   return {
     x: column + 0.5,
-    y: 3 - rowFromBottom + 0.5,
+    y: rowCount.value - 1 - rowFromBottom + 0.5,
   };
 }
 
@@ -321,8 +325,13 @@ defineExpose({ enqueueMove });
 
     <div class="overflow-x-auto pb-2">
       <div class="board-stage">
-        <div class="board-grid" role="grid" aria-label="Tablero de 40 casillas">
-          <BoardSpecialOverlay :specials="board.specials" />
+        <div
+          class="board-grid"
+          role="grid"
+          :aria-label="`Tablero de ${board.maxPosition} casillas`"
+          :style="boardGridStyle"
+        >
+          <BoardSpecialOverlay :specials="board.specials" :max-position="board.maxPosition" />
           <BoardCell
             v-for="position in cells"
             :key="position"

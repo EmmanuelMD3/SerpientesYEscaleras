@@ -3,6 +3,7 @@ import { randomInt, randomUUID } from 'node:crypto';
 import {
   BOARD_MAX_POSITION,
   BOARD_SPECIALS,
+  GAME_FINISH_REASON,
   GAME_STATUS,
   PLAYER_RESULT_STATUS,
   ROOM_ERROR_CODES,
@@ -16,6 +17,7 @@ import {
   type DiceSummary,
   type DiceValue,
   type FinalLeaderboardEntry,
+  type GameFinishReason,
   type GameWinner,
   type GameRoom,
   type Player,
@@ -73,7 +75,8 @@ interface InternalGameRoom {
   countdown: CountdownState | undefined;
   activeQuestion: ActiveQuestion | undefined;
   questionResults: QuestionResults | undefined;
-  winner: GameWinner | undefined;
+  winner: GameWinner | null;
+  finishReason: GameFinishReason | undefined;
 }
 
 type StoreResult<TData> =
@@ -382,8 +385,9 @@ function publicRoom(room: InternalGameRoom): GameRoom {
     result.boardState = boardState(room);
   }
 
-  if (room.winner) {
-    result.winner = { ...room.winner };
+  if (room.status === GAME_STATUS.FINISHED) {
+    result.winner = room.winner ? { ...room.winner } : null;
+    result.finishReason = room.finishReason ?? GAME_FINISH_REASON.ADMIN_ENDED;
     result.finalLeaderboard = finalLeaderboard(room);
   }
 
@@ -706,6 +710,7 @@ function finishGameIfWinner(room: InternalGameRoom): boolean {
   room.status = GAME_STATUS.FINISHED;
   room.countdown = undefined;
   room.winner = winner;
+  room.finishReason = GAME_FINISH_REASON.WINNER;
 
   return true;
 }
@@ -820,6 +825,36 @@ function activePlayersForQuestion(room: InternalGameRoom): InternalPlayer[] {
   return room.players.filter((player) => room.activeQuestion?.activePlayerIds.has(player.id));
 }
 
+function resetRoomToLobby(room: InternalGameRoom): void {
+  for (const player of room.players) {
+    player.position = 0;
+  }
+
+  room.questionCycleNumber = 0;
+  room.currentRoundNumber = 0;
+  room.questionOrder =
+    room.questionOrder.length === questions.length ? room.questionOrder : shuffledQuestions();
+  room.currentQuestionIndex = -1;
+  room.answersByQuestion.clear();
+  room.diceStatesByQuestion.clear();
+  room.roundResults = [];
+  room.status = GAME_STATUS.LOBBY;
+  room.countdown = undefined;
+  room.activeQuestion = undefined;
+  room.questionResults = undefined;
+  room.winner = null;
+  room.finishReason = undefined;
+}
+
+function finishRoom(room: InternalGameRoom, finishReason: GameFinishReason): GameRoom {
+  room.status = GAME_STATUS.FINISHED;
+  room.countdown = undefined;
+  room.winner = finishReason === GAME_FINISH_REASON.WINNER ? room.winner : null;
+  room.finishReason = finishReason;
+
+  return publicRoom(room);
+}
+
 export function createRoom(): { room: GameRoom; adminSessionToken: string } {
   const code = uniqueRoomCode();
   const adminSessionToken = randomUUID();
@@ -840,7 +875,8 @@ export function createRoom(): { room: GameRoom; adminSessionToken: string } {
     countdown: undefined,
     activeQuestion: undefined,
     questionResults: undefined,
-    winner: undefined,
+    winner: null,
+    finishReason: undefined,
   };
 
   rooms.set(code, room);
@@ -1100,11 +1136,44 @@ export function startGame(roomCode: string, socketId: string): GameControlResult
   room.countdown = makeCountdown(room);
   room.activeQuestion = undefined;
   room.questionResults = undefined;
-  room.winner = undefined;
+  room.winner = null;
+  room.finishReason = undefined;
 
   return {
     ok: true,
     room: publicRoom(room),
+  };
+}
+
+export function resetGame(roomCode: string, socketId: string): GameControlResult {
+  const adminResult = assertAdminRoom(roomCode, socketId);
+
+  if (!adminResult.ok) {
+    return adminResult;
+  }
+
+  resetRoomToLobby(adminResult.room);
+
+  return {
+    ok: true,
+    room: publicRoom(adminResult.room),
+  };
+}
+
+export function endGame(
+  roomCode: string,
+  socketId: string,
+  finishReason: GameFinishReason = GAME_FINISH_REASON.ADMIN_ENDED,
+): GameControlResult {
+  const adminResult = assertAdminRoom(roomCode, socketId);
+
+  if (!adminResult.ok) {
+    return adminResult;
+  }
+
+  return {
+    ok: true,
+    room: finishRoom(adminResult.room, finishReason),
   };
 }
 

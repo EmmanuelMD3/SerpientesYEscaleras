@@ -27,7 +27,7 @@ export type PlayerResultStatus = (typeof PLAYER_RESULT_STATUS)[keyof typeof PLAY
 
 export type DiceValue = 1 | 2 | 3 | 4 | 5 | 6;
 
-export const BOARD_MAX_POSITION = 40;
+export const BOARD_MAX_POSITION = 50;
 
 export const BOARD_SPECIAL_TYPE = {
   LADDER: 'LADDER',
@@ -49,16 +49,16 @@ export interface SpecialMove {
 }
 
 export const BOARD_SPECIALS = [
-  { type: BOARD_SPECIAL_TYPE.LADDER, from: 3, to: 11 },
-  { type: BOARD_SPECIAL_TYPE.LADDER, from: 8, to: 18 },
-  { type: BOARD_SPECIAL_TYPE.LADDER, from: 15, to: 26 },
-  { type: BOARD_SPECIAL_TYPE.LADDER, from: 22, to: 34 },
-  { type: BOARD_SPECIAL_TYPE.LADDER, from: 28, to: 37 },
-  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 13, to: 5 },
-  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 20, to: 9 },
-  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 27, to: 16 },
-  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 35, to: 24 },
-  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 39, to: 30 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 4, to: 19 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 9, to: 27 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 14, to: 32 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 24, to: 39 },
+  { type: BOARD_SPECIAL_TYPE.LADDER, from: 33, to: 46 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 18, to: 7 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 30, to: 13 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 37, to: 21 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 44, to: 26 },
+  { type: BOARD_SPECIAL_TYPE.SNAKE, from: 49, to: 34 },
 ] as const satisfies readonly BoardSpecial[];
 
 export function validateBoardSpecials(specials: readonly BoardSpecial[] = BOARD_SPECIALS): void {
@@ -99,6 +99,14 @@ export function validateBoardSpecials(specials: readonly BoardSpecial[] = BOARD_
 }
 
 validateBoardSpecials();
+
+export const GAME_FINISH_REASON = {
+  WINNER: 'WINNER',
+  ADMIN_ENDED: 'ADMIN_ENDED',
+  ADMIN_NEW_GAME: 'ADMIN_NEW_GAME',
+} as const;
+
+export type GameFinishReason = (typeof GAME_FINISH_REASON)[keyof typeof GAME_FINISH_REASON];
 
 export interface Player {
   id: string;
@@ -292,7 +300,8 @@ export interface GameRoom {
   diceSummary?: DiceSummary;
   dicePlayers?: DicePlayerState[];
   boardState?: BoardState;
-  winner?: GameWinner;
+  winner?: GameWinner | null;
+  finishReason?: GameFinishReason;
   finalLeaderboard?: FinalLeaderboardEntry[];
 }
 
@@ -307,6 +316,9 @@ export const SOCKET_EVENTS = {
   PLAYER_STATE: 'player:state',
   ROOM_ERROR: 'room:error',
   GAME_START: 'game:start',
+  GAME_RESET: 'game:reset',
+  GAME_END: 'game:end',
+  GAME_NEW: 'game:new',
   GAME_ERROR: 'game:error',
   QUESTION_STARTED: 'question:started',
   QUESTION_ENDED: 'question:ended',
@@ -427,6 +439,15 @@ export interface GameControlSuccess {
 
 export type GameControlResponse = SocketAck<GameControlSuccess>;
 
+export interface NewGameSuccess {
+  previousRoom: GameRoom;
+  room: GameRoom;
+  joinPath: string;
+  adminSessionToken: string;
+}
+
+export type NewGameResponse = SocketAck<NewGameSuccess>;
+
 export interface AnswerSubmitPayload {
   roomCode: string;
   questionId: string;
@@ -523,10 +544,17 @@ export interface PlayerMovedPayload extends PlayerMovePayload {
   board: BoardState;
 }
 
+export interface GameResetPayload {
+  roomCode: string;
+  room: GameRoom;
+  message: string;
+}
+
 export interface GameFinishedPayload {
   roomCode: string;
   room: GameRoom;
-  winner: GameWinner;
+  winner: GameWinner | null;
+  finishReason: GameFinishReason;
   leaderboard: FinalLeaderboardEntry[];
   board: BoardState;
 }
@@ -538,6 +566,7 @@ export interface ServerToClientEvents {
   [SOCKET_EVENTS.PLAYER_STATE]: (state: PlayerQuestionState) => void;
   [SOCKET_EVENTS.ROOM_ERROR]: (error: RoomError) => void;
   [SOCKET_EVENTS.GAME_ERROR]: (error: RoomError) => void;
+  [SOCKET_EVENTS.GAME_RESET]: (payload: GameResetPayload) => void;
   [SOCKET_EVENTS.QUESTION_STARTED]: (payload: QuestionStartedPayload) => void;
   [SOCKET_EVENTS.QUESTION_ENDED]: (payload: QuestionEndedPayload) => void;
   [SOCKET_EVENTS.QUESTION_RESULTS]: (payload: QuestionResultsPayload) => void;
@@ -571,6 +600,18 @@ export interface ClientToServerEvents {
   [SOCKET_EVENTS.GAME_START]: (
     payload: GameControlPayload,
     ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.GAME_RESET]: (
+    payload: GameControlPayload,
+    ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.GAME_END]: (
+    payload: GameControlPayload,
+    ack: (response: GameControlResponse) => void,
+  ) => void;
+  [SOCKET_EVENTS.GAME_NEW]: (
+    payload: GameControlPayload,
+    ack: (response: NewGameResponse) => void,
   ) => void;
   [SOCKET_EVENTS.QUESTION_NEXT]: (
     payload: GameControlPayload,

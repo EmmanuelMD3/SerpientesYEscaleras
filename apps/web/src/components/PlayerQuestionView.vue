@@ -3,6 +3,8 @@ import { computed } from 'vue';
 import { CheckCircle2, Clock3, Flag, Hourglass, Trophy, XCircle } from '@lucide/vue';
 
 import {
+  BOARD_MAX_POSITION,
+  GAME_FINISH_REASON,
   GAME_STATUS,
   PLAYER_RESULT_STATUS,
   type GameRoom,
@@ -20,6 +22,7 @@ const props = defineProps<{
   room: GameRoom;
   player?: Player | null | undefined;
   playerState: PlayerQuestionState;
+  noticeMessage?: string | undefined;
   isSubmitting?: boolean | undefined;
   isRollingDice?: boolean | undefined;
 }>();
@@ -34,10 +37,33 @@ const result = computed(() => props.playerState.result);
 const selectedOptionId = computed(() => props.playerState.selectedOptionId);
 const answerLocked = computed(() => props.isSubmitting || props.playerState.hasSubmitted);
 const winner = computed(() => props.room.winner);
+const finishReason = computed(() => props.room.finishReason);
 const playerWon = computed(() =>
   Boolean(winner.value && winner.value.playerId === props.player?.id),
 );
 const finalPosition = computed(() => props.player?.position ?? 0);
+const finishedTitle = computed(() => {
+  if (finishReason.value === GAME_FINISH_REASON.WINNER && playerWon.value) {
+    return '¡Ganaste!';
+  }
+
+  return 'Partida terminada';
+});
+const finishedMessage = computed(() => {
+  if (finishReason.value === GAME_FINISH_REASON.WINNER && playerWon.value) {
+    return 'Llegaste a la meta.';
+  }
+
+  if (finishReason.value === GAME_FINISH_REASON.ADMIN_NEW_GAME) {
+    return 'El administrador creo una nueva partida. Espera el nuevo enlace o QR.';
+  }
+
+  if (finishReason.value === GAME_FINISH_REASON.ADMIN_ENDED) {
+    return 'El administrador termino la partida.';
+  }
+
+  return 'La partida finalizo.';
+});
 
 const resultTitle = computed(() => {
   if (!result.value) {
@@ -189,14 +215,16 @@ function isIncorrectSelection(
       <Trophy v-if="playerWon" class="h-12 w-12" aria-hidden="true" />
       <Flag v-else class="h-12 w-12 text-amber-200" aria-hidden="true" />
       <h1 class="mt-4 text-4xl font-black uppercase leading-none">
-        {{ playerWon ? '¡Ganaste!' : 'Partida terminada' }}
+        {{ finishedTitle }}
       </h1>
-      <p v-if="playerWon" class="mt-3 text-lg font-bold">Llegaste a la meta.</p>
-      <template v-else>
+      <p class="mt-3 text-lg font-bold">{{ finishedMessage }}</p>
+      <template v-if="finishReason === GAME_FINISH_REASON.WINNER && !playerWon">
         <p class="mt-3 text-sm font-black uppercase tracking-wide text-white/55">Ganador</p>
         <p class="text-3xl font-black text-amber-200">
           {{ winner?.playerName ?? 'Por confirmar' }}
         </p>
+      </template>
+      <template v-if="!playerWon">
         <p class="mt-5 text-sm font-black uppercase tracking-wide text-white/55">
           Tu posicion final
         </p>
@@ -211,7 +239,10 @@ function isIncorrectSelection(
       <Clock3 class="mx-auto h-12 w-12 text-emerald-200" aria-hidden="true" />
       <h1 class="mt-4 text-3xl font-black">Ya estas dentro</h1>
       <p class="mt-2 text-lg font-semibold text-white/70">
-        Esperando a que el administrador inicie.
+        {{ noticeMessage || 'Esperando a que el administrador inicie.' }}
+      </p>
+      <p class="mt-3 text-sm font-black uppercase tracking-wide text-white/45">
+        Meta: casilla {{ BOARD_MAX_POSITION }}
       </p>
     </section>
   </section>

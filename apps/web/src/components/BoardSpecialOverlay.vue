@@ -32,6 +32,7 @@ interface SnakeShape {
 
 const props = defineProps<{
   specials: BoardSpecial[];
+  maxPosition: number;
 }>();
 
 const ladders = computed(() =>
@@ -40,6 +41,8 @@ const ladders = computed(() =>
 const snakes = computed(() =>
   props.specials.filter((special) => special.type === BOARD_SPECIAL_TYPE.SNAKE),
 );
+const rowCount = computed(() => Math.ceil(props.maxPosition / 10));
+const viewBox = computed(() => `0 0 10 ${rowCount.value}`);
 
 function pointForPosition(position: number): BoardPoint {
   const rowFromBottom = Math.floor((position - 1) / 10);
@@ -47,7 +50,7 @@ function pointForPosition(position: number): BoardPoint {
 
   return {
     x: column + 0.5,
-    y: 3 - rowFromBottom + 0.5,
+    y: rowCount.value - 1 - rowFromBottom + 0.5,
   };
 }
 
@@ -155,7 +158,7 @@ const snakeShapes = computed(() => snakes.value.map(snakeShape));
 <template>
   <svg
     class="board-special-overlay"
-    viewBox="0 0 10 4"
+    :viewBox="viewBox"
     preserveAspectRatio="none"
     aria-hidden="true"
   >

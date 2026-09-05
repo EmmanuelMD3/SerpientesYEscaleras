@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import {
+  BOARD_MAX_POSITION,
   BOARD_SPECIAL_TYPE,
   type BoardPlayer,
   type BoardSpecial,
@@ -19,13 +20,13 @@ defineProps<{
   <article
     class="board-cell"
     :class="{
-      'board-cell--goal': position === 40,
+      'board-cell--goal': position === BOARD_MAX_POSITION,
       'board-cell--occupied': players.length > 0,
     }"
   >
     <div class="flex items-start justify-between gap-1">
       <span class="board-cell__number">{{ position }}</span>
-      <span v-if="position === 40" class="board-cell__goal">Meta</span>
+      <span v-if="position === BOARD_MAX_POSITION" class="board-cell__goal">Meta</span>
       <span v-else-if="special" class="board-cell__special">
         {{ special.type === BOARD_SPECIAL_TYPE.LADDER ? '🪜' : '🐍' }}
       </span>

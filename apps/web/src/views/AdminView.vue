@@ -11,16 +11,20 @@ import {
 import QRCode from 'qrcode';
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 
+import AdminControls from '../components/AdminControls.vue';
 import AdminQuestionView from '../components/AdminQuestionView.vue';
 import ConnectionBadge from '../components/ConnectionBadge.vue';
 import GameBoard from '../components/GameBoard.vue';
 import PlayerList from '../components/PlayerList.vue';
 import {
+  createNewGame,
   createRoom,
+  endGame,
   ensureSocketConnected,
   getSocket,
   nextQuestion,
   rejoinAdminRoom,
+  resetGame,
   socketConnectionStatus,
   startDicePhase,
   startGame,
@@ -31,6 +35,7 @@ import {
   SOCKET_EVENTS,
   type BoardStatePayload,
   type GameFinishedPayload,
+  type GameResetPayload,
   type GameRoom,
   type PlayerMovePayload,
   type RoomError,
@@ -53,6 +58,9 @@ const isStarting = ref(false);
 const isStartingDice = ref(false);
 const isAdvancing = ref(false);
 const isRejoining = ref(false);
+const isResetting = ref(false);
+const isEnding = ref(false);
+const isCreatingNew = ref(false);
 const qrDataUrl = ref('');
 const socketStatus = socketConnectionStatus;
 
@@ -197,6 +205,88 @@ async function handleStartGame(): Promise<void> {
   }
 }
 
+async function handleResetGame(): Promise<void> {
+  if (!room.value) {
+    return;
+  }
+
+  errorMessage.value = '';
+  isResetting.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await resetGame(socket, { roomCode: room.value.code });
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    room.value = response.data.room;
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'No pudimos reiniciar la partida.';
+  } finally {
+    isResetting.value = false;
+  }
+}
+
+async function handleEndGame(): Promise<void> {
+  if (!room.value) {
+    return;
+  }
+
+  errorMessage.value = '';
+  isEnding.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await endGame(socket, { roomCode: room.value.code });
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    room.value = response.data.room;
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'No pudimos terminar la partida.';
+  } finally {
+    isEnding.value = false;
+  }
+}
+
+async function handleCreateNewGame(): Promise<void> {
+  if (!room.value) {
+    return;
+  }
+
+  errorMessage.value = '';
+  copyMessage.value = '';
+  isCreatingNew.value = true;
+
+  try {
+    await ensureSocketConnected(socket);
+    const response = await createNewGame(socket, { roomCode: room.value.code });
+
+    if (!response.ok) {
+      errorMessage.value = response.error.message;
+      return;
+    }
+
+    room.value = response.data.room;
+    saveAdminSession({
+      roomCode: response.data.room.code,
+      adminSessionToken: response.data.adminSessionToken,
+    });
+  } catch (error) {
+    errorMessage.value =
+      error instanceof Error ? error.message : 'No pudimos crear la nueva partida.';
+  } finally {
+    isCreatingNew.value = false;
+  }
+}
+
 async function handleNextQuestion(): Promise<void> {
   if (!room.value) {
     return;
@@ -297,6 +387,14 @@ function handleGameFinished(payload: GameFinishedPayload): void {
   room.value = payload.room;
 }
 
+function handleGameReset(payload: GameResetPayload): void {
+  if (!room.value || payload.roomCode !== room.value.code) {
+    return;
+  }
+
+  room.value = payload.room;
+}
+
 function handleSocketReconnect(): void {
   void attemptAdminRejoin();
 }
@@ -308,6 +406,7 @@ onMounted(() => {
   socket.on(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.on(SOCKET_EVENTS.BOARD_STATE, handleBoardState);
   socket.on(SOCKET_EVENTS.PLAYER_MOVE, handlePlayerMove);
+  socket.on(SOCKET_EVENTS.GAME_RESET, handleGameReset);
   socket.on(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.on('connect', handleSocketReconnect);
   void attemptAdminRejoin();
@@ -320,6 +419,7 @@ onBeforeUnmount(() => {
   socket.off(SOCKET_EVENTS.DICE_ERROR, handleRoomError);
   socket.off(SOCKET_EVENTS.BOARD_STATE, handleBoardState);
   socket.off(SOCKET_EVENTS.PLAYER_MOVE, handlePlayerMove);
+  socket.off(SOCKET_EVENTS.GAME_RESET, handleGameReset);
   socket.off(SOCKET_EVENTS.GAME_FINISHED, handleGameFinished);
   socket.off('connect', handleSocketReconnect);
 });
@@ -423,12 +523,23 @@ watch(joinUrl, async (nextUrl) => {
               </p>
               <h1 class="mt-3 text-4xl font-black leading-tight sm:text-6xl">Lobby de partida</h1>
             </div>
-            <ConnectionBadge
-              :status="socketStatus"
-              connected-text="Servidor conectado"
-              connecting-text="Conectando servidor"
-              disconnected-text="Servidor desconectado"
-            />
+            <div class="flex flex-wrap items-center gap-3">
+              <AdminControls
+                :disabled="socketStatus !== 'CONNECTED'"
+                :is-resetting="isResetting"
+                :is-ending="isEnding"
+                :is-creating-new="isCreatingNew"
+                @reset="handleResetGame"
+                @end="handleEndGame"
+                @new-game="handleCreateNewGame"
+              />
+              <ConnectionBadge
+                :status="socketStatus"
+                connected-text="Servidor conectado"
+                connecting-text="Conectando servidor"
+                disconnected-text="Servidor desconectado"
+              />
+            </div>
           </div>
         </header>
 
@@ -526,6 +637,15 @@ watch(joinUrl, async (nextUrl) => {
             <h1 class="mt-1 text-3xl font-black sm:text-4xl">Partida en vivo</h1>
           </div>
           <div class="flex flex-wrap items-center gap-3">
+            <AdminControls
+              :disabled="socketStatus !== 'CONNECTED'"
+              :is-resetting="isResetting"
+              :is-ending="isEnding"
+              :is-creating-new="isCreatingNew"
+              @reset="handleResetGame"
+              @end="handleEndGame"
+              @new-game="handleCreateNewGame"
+            />
             <div class="rounded-lg bg-emerald-200 px-4 py-2 text-zinc-950">
               <span class="text-xs font-black uppercase">Sala</span>
               <span class="ml-3 font-mono text-2xl font-black">{{ room.code }}</span>

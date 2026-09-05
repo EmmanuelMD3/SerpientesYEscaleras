@@ -73,11 +73,12 @@ Para probar manualmente:
 10. Confirmar que el servidor actualiza posiciones y que el tablero admin mueve las fichas.
 11. Confirmar que serpientes y escaleras solo se activan al aterrizar exactamente en su casilla inicial.
 12. Avanzar con `SIGUIENTE PREGUNTA` cuando los dados esten completos y verificar que las posiciones persisten.
-13. Confirmar que, si un jugador llega a la casilla 40, la partida termina solo despues de completar la fase de dados.
+13. Confirmar que, si un jugador llega a la casilla 50, la partida termina solo despues de completar la fase de dados.
+14. Confirmar que `REINICIAR`, `TERMINAR` y `NUEVA PARTIDA` solo funcionan desde admin y con confirmacion.
 
 ## Alcance actual
 
-Fase 4B cubre preguntas simultaneas tipo Kahoot, ciclos barajados sin repetir preguntas dentro de un mismo ciclo, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora, dado individual para jugadores correctos, posiciones persistentes, tablero numerico admin de 40 casillas, serpientes, escaleras y condicion de ganador.
+Fase 4B cubre preguntas simultaneas tipo Kahoot, ciclos barajados de 30 preguntas sin repetir preguntas dentro de un mismo ciclo, countdown, temporizador del servidor, resultados por pregunta, reconexion conservadora, dado individual para jugadores correctos, posiciones persistentes, controles administrativos, tablero numerico admin de 50 casillas, serpientes, escaleras y condicion de ganador.
 
 No avanzar todavia a casillas especiales adicionales, escudos, intercambios, power-ups, bonificaciones, base de datos, GSAP, sonidos ni sistema de cuentas salvo que el usuario lo pida.
 
